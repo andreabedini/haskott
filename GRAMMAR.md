@@ -676,6 +676,17 @@ is a projection of it. The tree holds every character of the input:
   productions are siblings in the rule node; comment lines after the last
   production of a rule, indented past the rule's first column, stay with the
   rule (Rule 2). No node is given the comment lines above it.
+* Node shapes: a `Premise`, `Conclusion`, `Formula` or `Clause` is
+  `Space? Line`; a `RuleLine` is `Space? Dashes` followed by the annotation's
+  tokens; a `DefnCom` is `Space? HomOpen Space? HomText("com")` followed by
+  the body's tokens. `Name`, `Bindspec`, `Mse`, `CompBound`, `Hom` and
+  `HomRef` are tight on both sides: the trivia around them belongs to their
+  parent.
+* In a definition body the comment lines that follow a rule, with or without
+  blank lines between, are placed by Rule 2 like everywhere else: those
+  indented past the rule's first line stay with the rule, the others belong
+  to the definition. Ott's grammar makes a comment line directly after the
+  conclusion part of the same block, but the tree does not record blocks.
 * Rendering an unedited tree yields the input exactly. This is checked on
   every file of §8.
 
