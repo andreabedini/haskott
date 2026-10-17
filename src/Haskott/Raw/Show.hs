@@ -16,6 +16,9 @@ import Haskott.Raw
 showRaw :: Document -> Text
 showRaw = T.concat . map item
 
+-- | The "TODO: ..." texts for parsing annotations, hom sections and Coq
+-- items are not unfinished work here: Ott's @pp_raw_item@ prints exactly
+-- these placeholders, and they are kept so the output still matches Ott's.
 item :: Item -> Text
 item it = case it of
   ItemMetavar d -> metavardefn d
