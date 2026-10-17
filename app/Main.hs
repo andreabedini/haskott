@@ -8,8 +8,12 @@ import qualified Data.ByteString as B
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
+import Graft.Range (rangeStart)
 import Haskott.Raw (rawDocument)
 import Haskott.Raw.Show (showRaw)
+import Haskott.Spec (Diagnostic (..))
+import Haskott.Spec.Check (checkDocument)
+import Haskott.Spec.Show (showSpec)
 import Haskott.Syntax
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
@@ -27,13 +31,23 @@ main = do
       case parseDocument src of
         Left e -> reportError file src e >> exitFailure
         Right tree -> TIO.putStr (showRaw (rawDocument tree))
+    ["spec", file] -> do
+      src <- readSource file
+      case parseDocument src of
+        Left e -> reportError file src e >> exitFailure
+        Right tree -> case checkDocument (rawDocument tree) of
+          Left d -> do
+            let (l, c) = offsetPosition src (rangeStart (diagRange d))
+            putStrLn (file ++ ":" ++ show l ++ ":" ++ show c ++ ": " ++ T.unpack (diagMessage d))
+            exitFailure
+          Right spec -> TIO.putStr (showSpec spec)
     ["dump", file] -> do
       src <- readSource file
       case parseDocument src of
         Left e -> reportError file src e >> exitFailure
         Right tree -> TIO.putStr (dumpTree tree)
     _ -> do
-      hPutStrLn stderr "usage: haskott check FILE...\n       haskott dump FILE\n       haskott showraw FILE"
+      hPutStrLn stderr "usage: haskott check FILE...\n       haskott dump FILE\n       haskott showraw FILE\n       haskott spec FILE"
       exitFailure
 
 readSource :: FilePath -> IO T.Text
@@ -58,3 +72,7 @@ reportError :: FilePath -> T.Text -> ParseError -> IO ()
 reportError file src e =
   let (l, c) = parseErrorPosition src e
    in putStrLn (file ++ ":" ++ show l ++ ":" ++ show c ++ ": " ++ T.unpack (parseErrorMessage e))
+
+-- | Line and column of a byte offset.
+offsetPosition :: T.Text -> Int -> (Int, Int)
+offsetPosition src off = parseErrorPosition src (ParseError off T.empty)

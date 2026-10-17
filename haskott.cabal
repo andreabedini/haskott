@@ -30,14 +30,19 @@ library
         Haskott
         Haskott.Raw
         Haskott.Raw.Show
+        Haskott.Spec
+        Haskott.Spec.Check
+        Haskott.Spec.Show
+        Haskott.Spec.Suffix
         Haskott.Syntax
         Haskott.Syntax.Ast
         Haskott.Syntax.Kind
         Haskott.Syntax.Parser
     build-depends:
-        base  >=4.18 && <5,
-        text  >=2.0  && <2.2,
-        graft >=0.1  && <0.2
+        base       >=4.18 && <5,
+        containers >=0.6  && <0.9,
+        text       >=2.0  && <2.2,
+        graft      >=0.1  && <0.2
 
 executable haskott
     import:           warnings
@@ -47,6 +52,7 @@ executable haskott
     build-depends:
         base,
         bytestring,
+        graft,
         text,
         haskott
 
@@ -58,6 +64,7 @@ executable haskott-differential
     build-depends:
         base,
         bytestring,
+        containers,
         filepath,
         process,
         text,

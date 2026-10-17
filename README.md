@@ -31,14 +31,23 @@ not about.
   counterpart of Ott's raw parse. `cabal run haskott-differential` prints
   it in the format of `ott -showraw` and compares with Ott on every corpus
   file; all 155 agree byte for byte.
-- Not yet done: the checked specification (resolved roots, element classes,
-  hom references, the checks Ott's typechecker performs), the
-  grammar-derived parser for the symbolic terms in rule lines, and any
-  output.
+- Milestone 3b, the checked specification: `Haskott.Spec.Check` follows
+  Ott's `check_and_disambiguate`: it synthesises the judgement, formula and
+  user-syntax grammars from the definitions, merges hom sections, resolves
+  roots and synonyms, classifies every element of every production with
+  Ott's identifier lexer (root plus suffix), merges dot forms into list
+  forms, resolves `[[ ]]` references in homs to element positions, converts
+  binding specifications, and performs Ott's checks on all of that (with
+  the exceptions listed in the module header). The differential also
+  compares it with `ott -show_sort`: on all 155 corpus files the two agree
+  on whether the file checks and, for every production, on each element's
+  text and class and on the homs.
+- Not yet done: the grammar-derived parser for the symbolic terms in rule
+  lines, and any output.
 
 `cabal run haskott -- check FILE...` parses files and reports the first
-error with its line and column; `cabal run haskott -- dump FILE` prints the
-tree.
+error with its line and column; `dump` prints the tree, `showraw` the raw
+specification as Ott prints it, and `spec` the checked specification.
 
 ## Building and testing
 
