@@ -3,15 +3,16 @@
 #
 # Usage: scripts/ott-acceptance.zsh
 # Run from the repository root. HASKOTT_OTT names the ott checkout (its
-# bin/ott is the Ott binary) and HASKOTT_REPORT_OTT the haskell-report-ott
-# checkout; both default to siblings of this repository. Each line of the
-# table is "class<TAB>path", where the path starts with ott/ or
-# haskell-report-ott/ and the class is one of accepted, other-error (Ott
+# bin/ott is the Ott binary) and HASKOTT_REPORT_OTT the formalisation of
+# the report; they default to ../ott and
+# ../haskell-2010-revised-report/formalisation. Each line of the table is
+# "class<TAB>path", where the path starts with ott/ or haskell-report-ott/
+# (a label for the formalisation, its old repository name) and the class is one of accepted, other-error (Ott
 # parsed the file and failed later) and parse-error (a syntax or lexing
 # error in Ott's front end, or a rule annotation it could not parse).
 set -e
 ott_dir=${HASKOTT_OTT:-../ott}
-report_dir=${HASKOTT_REPORT_OTT:-../haskell-report-ott}
+report_dir=${HASKOTT_REPORT_OTT:-../haskell-2010-revised-report/formalisation}
 ott=$ott_dir/bin/ott
 out=test/ott-acceptance.tsv
 tmp=$(mktemp)

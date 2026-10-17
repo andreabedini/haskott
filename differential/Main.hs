@@ -46,7 +46,7 @@ main = do
   let opt flag def = fromMaybe def (lookup flag (pairs args))
       only = [s | ("--only", s) <- pairs args]
       ottDir = opt "--ott" (fromMaybe "../ott" envOtt)
-      reportDir = opt "--report-ott" (fromMaybe "../haskell-report-ott" envReport)
+      reportDir = opt "--report-ott" (fromMaybe "../haskell-2010-revised-report/formalisation" envReport)
       ott = ottDir </> "bin" </> "ott"
       resolve rel = case splitDirectories rel of
         ("ott" : more) -> ottDir </> joinPath more

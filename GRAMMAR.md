@@ -697,7 +697,7 @@ law still holds for the whole file.
 ## 8. Corpus
 
 Ott's repository ships 125 `.ott` files under `tests/` and 39 under
-`examples/`, and haskell-report-ott has `ott/expressions.ott`. All three are
+`examples/`, and the report's formalisation has `ott/expressions.ott`. All three are
 the acceptance corpus: a file is accepted by haskott if and only if Ott 0.34
 (fork) accepts it, and for accepted files the number of rules, productions and
 definitions agree. Construct usage across `tests/` and `examples/` (files

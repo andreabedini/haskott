@@ -11,9 +11,11 @@
 -- terms.
 --
 -- Paths in the table start with @ott/@ or @haskell-report-ott/@. Those
--- prefixes name the checkouts of ott and haskell-report-ott, found next to
--- this repository by default, or where @HASKOTT_OTT@ and
--- @HASKOTT_REPORT_OTT@ point.
+-- prefixes name the checkout of ott and the formalisation of the report,
+-- found at @../ott@ and @../haskell-2010-revised-report/formalisation@ by
+-- default, or where @HASKOTT_OTT@ and @HASKOTT_REPORT_OTT@ point. The
+-- second prefix is the formalisation's old repository name, kept as a
+-- label.
 module Main (main) where
 
 import Control.Monad (forM, unless)
@@ -40,7 +42,7 @@ data Expectation = ShouldParse | ShouldFail
 main :: IO ()
 main = do
   ottDir <- fromMaybe "../ott" <$> lookupEnv "HASKOTT_OTT"
-  reportDir <- fromMaybe "../haskell-report-ott" <$> lookupEnv "HASKOTT_REPORT_OTT"
+  reportDir <- fromMaybe "../haskell-2010-revised-report/formalisation" <$> lookupEnv "HASKOTT_REPORT_OTT"
   let resolve rel = case splitDirectories rel of
         ("ott" : more) -> ottDir </> joinPath more
         ("haskell-report-ott" : more) -> reportDir </> joinPath more
