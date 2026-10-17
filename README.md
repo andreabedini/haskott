@@ -74,8 +74,28 @@ not about.
   `layout.ott`, plus the filtered `report.src.typ`) the output is byte for
   byte the fork's, and `make OTT=haskott` builds the report's PDFs. The
   differential also compares the Typst output of every corpus file.
+- Milestone 7, rename: `haskott rename [--write] OLD NEW FILE...` renames
+  a metavariable, index variable or grammar-rule name across the `.ott`
+  files of a specification and the `[[ ]]` quotations of documents
+  filtered against it (the other files given). It edits the identifiers
+  Ott reads as that root, with any suffix, or as a root whose suffix
+  mentions the index variable: in declarations, productions and
+  judgement forms, bounds, bindspecs, hom references that resolve to an
+  element, subrules, context rules, substitutions, free variables,
+  function results, the parsed rule lines and the quotations. Comments,
+  hom bodies and other target text stay as written, and the mentions of
+  the root found there are listed as notes. Every rename is checked
+  before anything is written: the renamed files are loaded, checked and
+  parsed again, and must give the same grammar and the same parse of
+  every term, up to the renaming. Renames to an existing root, a
+  terminal, a keyword, or a name that changes how anything lexes are
+  refused with the reason. Without `--write` the edits are only listed.
+  `cabal test rename-sweep` renames every root of every corpus file (and
+  of the report with its document) to a fresh name and back, and
+  checks that the files come back byte for byte.
 - Not yet done: TeX output, Ott's remaining checks (bounds consistency at
-  output time among them), prover back ends.
+  output time among them), prover back ends, error-tolerant parsing, a
+  language server.
 
 haskott takes Ott's command line for the implemented part: `haskott -i
 FILE... -o OUT.typ [-typst_filter SRC DST] [-picky_multiple_parses BOOL]
@@ -84,7 +104,8 @@ FILE... -o OUT.typ [-typst_filter SRC DST] [-picky_multiple_parses BOOL]
 [-tex_suppress_ntr N]`. The development subcommands look at one stage
 each: `cabal run haskott -- check FILE...` runs the whole pipeline on
 files and reports every problem with its line and column (`--picky` makes
-several parses of a term an error); `dump` prints the tree after stage one
+several parses of a term an error); `roots` lists the names `rename`
+accepts; `dump` prints the tree after stage one
 and `dump --terms` after the term splice, `showraw` the raw specification
 as Ott prints it, `spec` the checked specification, and `parse FILE
 ':root: text'` every parse of a term in Ott's plain form.

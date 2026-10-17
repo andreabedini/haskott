@@ -29,8 +29,10 @@ library
     exposed-modules:
         Haskott
         Haskott.Defns
+        Haskott.Load
         Haskott.Raw
         Haskott.Raw.Show
+        Haskott.Rename
         Haskott.Spec
         Haskott.Spec.Check
         Haskott.Spec.Show
@@ -93,6 +95,21 @@ test-suite corpus
     build-depends:
         base,
         bytestring,
+        filepath,
+        text,
+        haskott
+
+test-suite rename-sweep
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    default-language: GHC2021
+    main-is:          RenameSweep.hs
+    ghc-options:      -threaded -rtsopts
+    build-depends:
+        base,
+        bytestring,
+        containers,
         filepath,
         text,
         haskott

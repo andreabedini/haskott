@@ -15,6 +15,7 @@ module Haskott.Typst
   , ppSymterm
   , renderSymterm
   , filterDocument
+  , documentQuotations
   , countsString
   ) where
 
@@ -828,31 +829,67 @@ typstDocument env sources processed =
 -- without its @]]@ is an error.
 filterDocument :: Env -> Text -> Either Text Text
 filterDocument env src = do
-  els <- parseFiltered (lexFiltered src)
+  els <- parseFiltered (map fst (lexFiltered src))
   pure (ppEmbedSpec env els)
+
+-- | The @[[ ... ]]@ quotations of a document, as the filter sees them:
+-- the byte offset of each quotation's text, the text as written, and the
+-- text the filter parses (they differ only where @[[[@ or @]]]@, the
+-- escapes for brackets, occur inside a quotation).
+documentQuotations :: Text -> Either Text [(Int, Text, Text)]
+documentQuotations src = go 0 (lexFiltered src)
+  where
+    go off toks = case toks of
+      [] -> Right []
+      (FOpen, n) : rest ->
+        let (inner, after) = break (isClose . fst) rest
+            innerLen = sum (map snd inner)
+            start = off + n
+         in case after of
+              (FClose, m) : more
+                | all (notOpen . fst) inner ->
+                    let written = TE.decodeUtf8 (B.take innerLen (B.drop start bytes))
+                        parsed = T.concat (map (tokText . fst) inner)
+                     in ((start, written, parsed) :) <$> go (start + innerLen + m) more
+              _ -> Left "unfiltered document cannot be parsed"
+      (FClose, _) : _ -> Left "unfiltered document cannot be parsed"
+      (_, n) : rest -> go (off + n) rest
+    bytes = TE.encodeUtf8 src
 
 data FTok = FBlanks Text | FString Text | FOpen | FClose
 
-lexFiltered :: Text -> [FTok]
+isClose, notOpen :: FTok -> Bool
+isClose tok = case tok of FClose -> True; _ -> False
+notOpen tok = case tok of FOpen -> False; _ -> True
+
+tokText :: FTok -> Text
+tokText tok = case tok of
+  FBlanks s -> s
+  FString s -> s
+  _ -> ""
+
+-- | Ott's @filter@ lexer mode, with the number of bytes each token
+-- consumes.
+lexFiltered :: Text -> [(FTok, Int)]
 lexFiltered t
   | T.null t = []
   | isWs c =
       let (w, rest) = T.span isWs t
-       in FBlanks w : lexFiltered rest
+       in (FBlanks w, byteLength w) : lexFiltered rest
   | "[[" `T.isPrefixOf` t =
       let (brackets, rest) = T.span (== '[') t
        in if T.length brackets > 2
-            then FString (T.init brackets) : lexFiltered rest
-            else FOpen : lexFiltered (T.drop 2 t)
+            then (FString (T.init brackets), T.length brackets) : lexFiltered rest
+            else (FOpen, 2) : lexFiltered (T.drop 2 t)
   | "]]" `T.isPrefixOf` t =
       let (brackets, rest) = T.span (== ']') t
        in if T.length brackets > 2
-            then FString (T.init brackets) : lexFiltered rest
-            else FClose : lexFiltered (T.drop 2 t)
-  | c == '[' || c == ']' = FString (T.singleton c) : lexFiltered (T.drop 1 t)
+            then (FString (T.init brackets), T.length brackets) : lexFiltered rest
+            else (FClose, 2) : lexFiltered (T.drop 2 t)
+  | c == '[' || c == ']' = (FString (T.singleton c), 1) : lexFiltered (T.drop 1 t)
   | otherwise =
       let (s, rest) = T.break (\x -> isWs x || x == '[' || x == ']') t
-       in FString s : lexFiltered rest
+       in (FString s, byteLength s) : lexFiltered rest
   where
     c = T.head t
     isWs x = x `elem` (" \t\n\r\x0b\x0c" :: String)
@@ -869,10 +906,3 @@ parseFiltered toks = case toks of
           FClose : more
             | all notOpen inner -> (EmbedInner (T.concat (map tokText inner)) :) <$> parseFiltered more
           _ -> Left "unfiltered document cannot be parsed"
-  where
-    isClose tok = case tok of FClose -> True; _ -> False
-    notOpen tok = case tok of FOpen -> False; _ -> True
-    tokText tok = case tok of
-      FBlanks s -> s
-      FString s -> s
-      _ -> ""

@@ -21,6 +21,7 @@ module Haskott.Syntax.Parser
   ( ParseError (..)
   , parseDocument
   , parseErrorPosition
+  , metaKeywords
   ) where
 
 import Control.Monad (ap, liftM)

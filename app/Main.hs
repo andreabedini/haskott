@@ -12,13 +12,13 @@ module Main (main) where
 import Control.Monad (forM, forM_, unless, when)
 import qualified Data.ByteString as B
 import Data.List (isSuffixOf)
-import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
-import Graft.Green (GreenElement (..), GreenNode, greenNode, greenToken, nodeChildren, nodeKind)
-import Graft.Range (TextRange, rangeEnd, rangeStart, textRange)
+import Graft.Range (rangeStart)
 import Haskott.Defns (processDefns)
+import Haskott.Load
+import Haskott.Rename
 import Haskott.Raw (rawDocument)
 import Haskott.Raw.Show (showRaw)
 import Haskott.Spec (Diagnostic (..))
@@ -83,9 +83,16 @@ main = do
           Right spec -> do
             let (tree', _, _) = spliceTerms (FirstIfSame []) (makeTermParser spec) tree
             TIO.putStr (dumpTree tree')
+    ("rename" : rest) -> renameMain rest
+    ("roots" : files@(_ : _)) -> do
+      -- the names rename accepts, one per line
+      texts <- forM files $ \f -> (,) f <$> readSource f
+      case loadSpec texts of
+        Left e -> reportLoadError e >> exitFailure
+        Right l -> mapM_ TIO.putStrLn (renameableRoots (ldSpec l))
     (('-' : _) : _) -> ottMain args
     _ -> do
-      hPutStrLn stderr "usage: haskott [-i FILE]... [-o FILE.typ]... [-typst_filter SRC DST]... [OPTION]...\n       haskott check [--picky] FILE...\n       haskott dump [--terms] FILE\n       haskott showraw FILE\n       haskott spec FILE\n       haskott parse FILE \":root: text\""
+      hPutStrLn stderr "usage: haskott [-i FILE]... [-o FILE.typ]... [-typst_filter SRC DST]... [OPTION]...\n       haskott rename [--write] OLD NEW FILE...\n       haskott check [--picky] FILE...\n       haskott dump [--terms] FILE\n       haskott showraw FILE\n       haskott spec FILE\n       haskott parse FILE \":root: text\""
       exitFailure
 
 ------------------------------------------------------------------------
@@ -129,31 +136,16 @@ ottMain args = do
   when (null (oInputs opts)) $ hPutStrLn stderr "no input files" >> exitFailure
   forM_ (oOutputs opts) $ \o ->
     unless (".typ" `isSuffixOf` o) $ hPutStrLn stderr ("only Typst output is implemented; cannot write " ++ o) >> exitFailure
-  -- parse every file; the raw documents are concatenated, with the
-  -- offsets of later files shifted past the earlier ones so that a
-  -- diagnostic finds its file
-  inputs <- forM (oInputs opts) $ \f -> do
-    src <- readSource f
-    case parseDocument src of
-      Left e -> reportError f src e >> exitFailure
-      Right tree -> pure (f, src, tree)
-  let bases = scanl (+) 0 [B.length (TE.encodeUtf8 src) | (_, src, _) <- inputs]
-      files = zip bases inputs
-      raw = concat [rawDocument (shiftTree base tree) | (base, (_, _, tree)) <- files]
+  -- every file is parsed into its own tree and the raw documents are
+  -- checked as one, as Ott does with several -i options
+  sourcesText <- forM (oInputs opts) $ \f -> (,) f <$> readSource f
+  loaded <- case loadSpec sourcesText of
+    Left e -> reportLoadError e >> exitFailure
+    Right l -> pure l
+  let spec = ldSpec loaded
+      files = ldSources loaded
       sources = T.pack (unwords (oInputs opts))
-      locate d =
-        let off = rangeStart (diagRange d)
-            (base, (f, src, _)) = case [x | x@(b, _) <- files, b <= off] of
-              [] -> (0, headInput)
-              xs -> last xs
-         in (f, src, d {diagRange = shiftRange (negate base) (diagRange d)})
-      headInput = case inputs of
-        (x : _) -> x
-        [] -> error "no inputs"
-      report d = let (f, src, d') = locate d in reportDiagnostic f src d'
-  spec <- case checkDocument raw of
-    Left d -> report d >> exitFailure
-    Right spec -> pure spec
+      report d = let (f, src, d') = locateDiagnostic files d in reportDiagnostic f src d'
   let typstWanted = not (null (oOutputs opts)) || not (null (oFilters opts))
       (env, policy0, tp0, processed0, diags0) = makeTypst (oTypst opts) (oPicky opts) spec
       -- without a Typst target, several parses of a term are no error
@@ -161,7 +153,7 @@ ottMain args = do
         | typstWanted || oPicky opts = (policy0, processed0, diags0)
         | otherwise = let (pr, ds) = processDefns (FirstIfSame []) tp0 spec in (FirstIfSame [], pr, ds)
       -- stage two on every tree, for its warnings about quotations
-      warnings = concat [map (shiftDiag base) ws | (base, (_, _, tree)) <- files, let (_, _, ws) = spliceTerms policy tp0 tree]
+      warnings = concat [map (shiftDiag (srcBase s)) ws | s <- files, let (_, _, ws) = spliceTerms policy tp0 (srcTree s)]
   mapM_ report diags
   mapM_ (\d -> report d {diagMessage = "warning: " <> diagMessage d}) warnings
   forM_ (oOutputs opts) $ \o -> writeText o (typstDocument env sources processed)
@@ -176,18 +168,51 @@ ottMain args = do
   where
     shiftDiag base d = d {diagRange = shiftRange base (diagRange d)}
 
--- | A document tree whose offsets start at the base: the real children
--- behind a space token of that length.
-shiftTree :: Int -> GreenNode Kind -> GreenNode Kind
-shiftTree base tree
-  | base == 0 = tree
-  | otherwise = greenNode (nodeKind tree) (Token (greenToken Space (T.replicate base " ")) : nodeChildren tree)
-
-shiftRange :: Int -> TextRange -> TextRange
-shiftRange n r = fromMaybe r (textRange (rangeStart r + n) (rangeEnd r + n))
-
 writeText :: FilePath -> T.Text -> IO ()
 writeText f = B.writeFile f . TE.encodeUtf8
+
+------------------------------------------------------------------------
+-- Rename
+
+-- | @haskott rename [--write] OLD NEW FILE...@: the @.ott@ files are the
+-- specification, in the order Ott reads them, and the other files are
+-- documents whose @[[ ]]@ quotations are renamed too. Without @--write@
+-- the edits are listed and nothing is changed.
+renameMain :: [String] -> IO ()
+renameMain args = do
+  let write = "--write" `elem` args
+  case filter (/= "--write") args of
+    old : new : files@(_ : _) -> do
+      texts <- forM files $ \f -> (,) f <$> readSource f
+      let (specs, docs) = (filter ((".ott" `isSuffixOf`) . fst) texts, filter (not . (".ott" `isSuffixOf`) . fst) texts)
+      when (null specs) $ hPutStrLn stderr "rename: no .ott file given" >> exitFailure
+      case renameRoot (T.pack old) (T.pack new) specs docs of
+        Left problems -> do
+          forM_ problems $ \p -> case problemWhere p of
+            Just (f, src, off) ->
+              let (l, c) = offsetPosition src off
+               in hPutStrLn stderr (f ++ ":" ++ show l ++ ":" ++ show c ++ ": " ++ T.unpack (problemMessage p))
+            Nothing -> hPutStrLn stderr ("rename: " ++ T.unpack (problemMessage p))
+          exitFailure
+        Right renamed -> do
+          forM_ renamed $ \r -> forM_ (frEdits r) $ \e ->
+            let (l, c) = offsetPosition (frOld r) (editStart e)
+             in putStrLn (frPath r ++ ":" ++ show l ++ ":" ++ show c ++ ": " ++ T.unpack (editOld e) ++ " -> " ++ T.unpack (editNew e))
+          forM_ renamed $ \r -> forM_ (frNotes r) $ \(off, w) ->
+            let (l, c) = offsetPosition (frOld r) off
+             in putStrLn (frPath r ++ ":" ++ show l ++ ":" ++ show c ++ ": note: " ++ T.unpack w ++ " in a comment or hom body is left as written")
+          let n = sum (map (length . frEdits) renamed)
+              changed = [r | r <- renamed, not (null (frEdits r))]
+          putStrLn (show n ++ " occurrences in " ++ show (length changed) ++ " files; the renamed specification checks and parses every term as before")
+          if write
+            then forM_ changed $ \r -> writeText (frPath r) (frNew r)
+            else putStrLn "nothing written: pass --write to change the files"
+    _ -> hPutStrLn stderr "usage: haskott rename [--write] OLD NEW FILE..." >> exitFailure
+
+reportLoadError :: LoadError -> IO ()
+reportLoadError e = case e of
+  LoadParse f src pe -> reportError f src pe
+  LoadCheck f src d -> reportDiagnostic f src d
 
 ------------------------------------------------------------------------
 -- Development subcommands
