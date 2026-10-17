@@ -13,6 +13,7 @@ module Haskott.Term.Grammar
   ( NtId
   , Sym (..)
   , Res (..)
+  , Tag (..)
   , Production (..)
   , Grammar (..)
   , buildGrammar
@@ -28,6 +29,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Haskott.Spec
+import Haskott.Syntax.Kind (Kind (..))
 import Haskott.Term.Merge
 import Haskott.Term.Symterm
 
@@ -51,6 +53,21 @@ data Res
   | ResSil [SuffixItem]
   deriving (Eq, Show)
 
+-- | How a production appears in the lossless tree of a term.
+data Tag
+  = TagLeaf Kind
+  -- ^ one token of the kind, spanning the production minus its leading
+  -- whitespace; a 'Space' leaf is the whitespace itself
+  | TagPass Kind
+  -- ^ no node of its own: its children's elements, with its literal
+  -- characters as tokens of the kind
+  | TagNode Kind
+  -- ^ a node of the kind around its children's elements
+  | TagProd Text Text Kind
+  -- ^ a production node: the rule's root, the production's name, and the
+  -- kind of its literal characters
+  deriving (Eq, Show)
+
 data Production = Production
   { prodLeft :: NtId
   , prodRight :: [Sym]
@@ -60,6 +77,7 @@ data Production = Production
   , prodReject :: Bool
   , prodTransparent :: Bool
   , prodIndex :: Int
+  , prodTag :: Tag
   }
 
 data Grammar = Grammar
@@ -133,25 +151,31 @@ ntName k = case k of
 nt :: NtKey -> Build Sym
 nt k = N <$> mknt k
 
-addProdWith :: Bool -> Bool -> NtId -> [Sym] -> ([Res] -> Maybe Res) -> Build Int
-addProdWith transp rej left right action = do
+addProdWith :: Tag -> Bool -> Bool -> NtId -> [Sym] -> ([Res] -> Maybe Res) -> Build Int
+addProdWith tag transp rej left right action = do
   b <- get
   let i = bCount b
-      p = Production {prodLeft = left, prodRight = right, prodAction = action, prodReject = rej, prodTransparent = transp, prodIndex = i}
+      p = Production {prodLeft = left, prodRight = right, prodAction = action, prodReject = rej, prodTransparent = transp, prodIndex = i, prodTag = tag}
   put b {bCount = i + 1, bProds = p : bProds b}
   pure i
 
-addProd :: NtId -> [Sym] -> ([Res] -> Maybe Res) -> Build ()
-addProd l r a = () <$ addProdWith False False l r a
+plain :: Tag
+plain = TagPass TTerminal
 
-addProdIdx :: NtId -> [Sym] -> ([Res] -> Maybe Res) -> Build Int
-addProdIdx = addProdWith False False
+addProd :: NtId -> [Sym] -> ([Res] -> Maybe Res) -> Build ()
+addProd = addProdT plain
+
+addProdT :: Tag -> NtId -> [Sym] -> ([Res] -> Maybe Res) -> Build ()
+addProdT tag l r a = () <$ addProdWith tag False False l r a
+
+addProdIdxT :: Tag -> NtId -> [Sym] -> ([Res] -> Maybe Res) -> Build Int
+addProdIdxT tag = addProdWith tag False False
 
 addProdReject :: NtId -> [Sym] -> Build ()
-addProdReject l r = () <$ addProdWith False True l r (const Nothing)
+addProdReject l r = () <$ addProdWith plain False True l r (const Nothing)
 
 addProdTransp :: NtId -> [Sym] -> ([Res] -> Maybe Res) -> Build Int
-addProdTransp = addProdWith True False
+addProdTransp = addProdWith plain True False
 
 addFollow :: NtId -> (Char -> Bool) -> Build ()
 addFollow i f = modify (\b -> b {bFollows = IM.insertWith (++) i [f] (bFollows b)})
@@ -235,8 +259,8 @@ build spec = do
 
   -- builtins
   whitespace <- mknt (BuiltinNt "whitespace")
-  addProd whitespace [] (const (res ResIgnore))
-  forM_ (" \n\t\r\f" :: String) $ \c -> addProd whitespace [N whitespace, T c] (const (res ResIgnore))
+  addProdT (TagLeaf Space) whitespace [] (const (res ResIgnore))
+  forM_ (" \n\t\r\f" :: String) $ \c -> addProdT (TagLeaf Space) whitespace [N whitespace, T c] (const (res ResIgnore))
 
   digit <- mknt (BuiltinNt "digit")
   forM_ ['0' .. '9'] $ \c -> addProd digit [T c] (const (res (ResChar c)))
@@ -249,9 +273,9 @@ build spec = do
   alphanumRestr digitPlus2
 
   dots <- mknt (BuiltinNt "dots")
-  addProd dots (terms "..") (const (res (ResInt 0)))
-  addProd dots (terms "...") (const (res (ResInt 1)))
-  addProd dots (terms "....") (const (res (ResInt 2)))
+  addProdT (TagLeaf Dots) dots (terms "..") (const (res (ResInt 0)))
+  addProdT (TagLeaf Dots) dots (terms "...") (const (res (ResInt 1)))
+  addProdT (TagLeaf Dots) dots (terms "....") (const (res (ResInt 2)))
 
   suffix <- mknt (BuiltinNt "suffix")
   suffixItem <- mknt (BuiltinNt "suffix_item")
@@ -286,22 +310,22 @@ build spec = do
   addProd capAlphanum [N capAz, N alphaFollow] resConsString
   alphanumRestr capAlphanum
   number <- mknt (BuiltinNt "number")
-  addProd number [T '0'] (const (res (ResString "0")))
-  addProd number [T '1'] (const (res (ResString "1")))
+  addProdT (TagLeaf TNumber) number [T '0'] (const (res (ResString "0")))
+  addProdT (TagLeaf TNumber) number [T '1'] (const (res (ResString "1")))
   alphanumRestr number
 
   indexvar <- mknt (BuiltinNt "indexvar")
-  forM_ indexvars $ \iv -> addProd indexvar (terms iv) (const (res (ResString iv)))
-  addProd indexvarFancy [N indexvar] (\rs -> case rs of [ResString s] -> res (ResSi (SiVar s 0)); _ -> bad "indexvar_fancy")
-  addProd indexvarFancy (N indexvar : terms "-1") (\rs -> case rs of [ResString s] -> res (ResSi (SiVar s (-1))); _ -> bad "indexvar_fancy")
+  forM_ indexvars $ \iv -> addProdT (TagLeaf TIndex) indexvar (terms iv) (const (res (ResString iv)))
+  addProdT (TagLeaf TIndex) indexvarFancy [N indexvar] (\rs -> case rs of [ResString s] -> res (ResSi (SiVar s 0)); _ -> bad "indexvar_fancy")
+  addProdT (TagLeaf TIndex) indexvarFancy (N indexvar : terms "-1") (\rs -> case rs of [ResString s] -> res (ResSi (SiVar s (-1))); _ -> bad "indexvar_fancy")
 
   -- nt_or_mv: anything that lexes as a nonterminal or metavariable
   ntOrMv <- mknt (BuiltinNt "nt_or_mv")
   let addMvrNonidx target name mvr = do
-        addProd target (N whitespace : terms mvr) (const (res (ResSte (SteMetavar name (mvr, [])))))
+        addProdT (TagLeaf TMetavar) target (N whitespace : terms mvr) (const (res (ResSte (SteMetavar name (mvr, [])))))
         alphanumRestr target
       addMvrIdx target name mvr =
-        addProd target (N whitespace : terms mvr ++ [N suffix]) (\rs -> case rs of [_, ResSil x] -> res (ResSte (SteMetavar name (mvr, x))); _ -> bad "mvr idx")
+        addProdT (TagLeaf TMetavar) target (N whitespace : terms mvr ++ [N suffix]) (\rs -> case rs of [_, ResSil x] -> res (ResSte (SteMetavar name (mvr, x))); _ -> bad "mvr idx")
   forM_ indexMvrs (addMvrNonidx ntOrMv "")
   forM_ nonindexMvrs (addMvrIdx ntOrMv "")
   forM_ allNtrs $ \n ->
@@ -316,13 +340,13 @@ build spec = do
       Nothing -> pure ()
       Just lexNt -> do
         lexSym <- nt lexNt
-        addProd mnt (N whitespace : T ':' : terms (mvdName md) ++ [T ':', lexSym])
+        addProdT (TagLeaf TMetavar) mnt (N whitespace : T ':' : terms (mvdName md) ++ [T ':', lexSym])
           (\rs -> case rs of (_ : ResString s : _) -> res (ResSte (SteMetavar (mvdName md) (s, []))); _ -> bad "metavar :name:")
         ntAux <- gennt (mvdName md <> "_aux")
         ntC <- mknt (MetavarNt (mvdName md) True)
-        addProd ntC [N whitespace, lexSym]
+        addProdT (TagLeaf TVar) ntC [N whitespace, lexSym]
           (\rs -> case rs of [_, ResString s] -> if isTm s then Nothing else res (ResSte (SteVar (mvdName md) s)); _ -> bad "concrete var")
-        addProd ntAux [N whitespace, lexSym]
+        addProdT (TagLeaf TVar) ntAux [N whitespace, lexSym]
           (\rs -> case rs of [_, ResString s] -> res (ResSte (SteVar (mvdName md) s)); _ -> bad "var aux")
         addProdReject ntAux [N ntOrMv]
         addProd mnt [N ntAux]
@@ -336,18 +360,18 @@ build spec = do
       let concreteProds = [p | p <- ruleProds r, not (prodMeta p) || prodSugar p]
       ntC <- mknt (OrigNt ntr True)
       forM_ concreteProds (processProd mvdOf True ntC ntr)
-      addProd rnt (N whitespace : terms ":concrete:" ++ [N ntC]) (\rs -> case rs of [_, x] -> res x; _ -> bad "concrete")
+      addProdT (TagPass TProdName) rnt (N whitespace : terms ":concrete:" ++ [N ntC]) (\rs -> case rs of [_, x] -> res x; _ -> bad "concrete")
     forM_ (ruleProds r) (processProd mvdOf False rnt ntr)
     forM_ (ntrSynonyms ntr) $ \n ->
-      addProd rnt (N whitespace : terms n ++ [N suffix]) (\rs -> case rs of [_, ResSil l] -> res (ResSt (StNonterm ntr (n, l))); _ -> bad "nonterm")
+      addProdT (TagLeaf TNonterm) rnt (N whitespace : terms n ++ [N suffix]) (\rs -> case rs of [_, ResSil l] -> res (ResSt (StNonterm ntr (n, l))); _ -> bad "nonterm")
     forM_ (properSubs ntr) $ \ntl ->
       forM_ (ntrSynonyms ntl) $ \n ->
-        addProd rnt (N whitespace : terms n ++ [N suffix]) (\rs -> case rs of [_, ResSil l] -> res (ResSt (StNontermSub ntl (promote ntr) (n, l))); _ -> bad "nontermsub")
+        addProdT (TagLeaf TNonterm) rnt (N whitespace : terms n ++ [N suffix]) (\rs -> case rs of [_, ResSil l] -> res (ResSt (StNontermSub ntl (promote ntr) (n, l))); _ -> bad "nontermsub")
 
   -- terminals
   forM_ (Set.toList terminalsSet) $ \t -> do
     tnt <- mknt (TermNt t)
-    addProd tnt (N whitespace : terms t) (\rs -> case rs of [x] -> res x; _ -> bad "terminal")
+    addProdT (TagLeaf TTerminal) tnt (N whitespace : terms t) (\rs -> case rs of [x] -> res x; _ -> bad "terminal")
     when (T.null t || isAlphanum (T.last t)) (alphanumRestr tnt)
 
   -- priorities of parsing annotations
@@ -390,17 +414,17 @@ processProd :: (Text -> MetavarDefn) -> Bool -> NtId -> Text -> Prod -> Build ()
 processProd mvdOf concrete left ntr p = do
   let buildRes rl = res (ResSt (StNode ntr (prodName p) (processProdRes rl)))
   rhs <- mapM (processElement mvdOf concrete left) (prodElements p)
-  index <- addProdIdx left rhs buildRes
+  index <- addProdIdxT (TagProd ntr (prodName p) TTerminal) left rhs buildRes
   if concrete
     then modify (\b -> b {bIndex1 = M.insert (prodName p) index (bIndex1 b)})
     else case prodDisambiguate p of
       Nothing -> do
         w <- ws
-        index2 <- addProdIdx left (w : terms (":" <> prodName p <> ":") ++ rhs) (\rs -> case rs of (_ : rl) -> buildRes rl; _ -> bad "pseudo-terminal")
+        index2 <- addProdIdxT (TagProd ntr (prodName p) TProdName) left (w : terms (":" <> prodName p <> ":") ++ rhs) (\rs -> case rs of (_ : rl) -> buildRes rl; _ -> bad "pseudo-terminal")
         modify (\b -> b {bIndex2 = M.insert (prodName p) (index, index2) (bIndex2 b)})
       Just (s1, s2) -> do
         w <- ws
-        index2 <- addProdIdx left (w : terms s1 ++ rhs ++ terms s2) (\rs -> case rs of (_ : rl) -> buildRes rl; _ -> bad "disambiguate")
+        index2 <- addProdIdxT (TagProd ntr (prodName p) TTerminal) left (w : terms s1 ++ rhs ++ terms s2) (\rs -> case rs of (_ : rl) -> buildRes rl; _ -> bad "disambiguate")
         modify (\b -> b {bIndex2 = M.insert (prodName p) (index, index2) (bIndex2 b)})
 
 processProdRes :: [Res] -> [Ste]
@@ -420,9 +444,9 @@ processElement mvdOf concrete left e = case e of
   ListForm lb -> do
     let elc = enforceLength lb
     listNt <- gennt "list"
-    addProd listNt [] (const (elc []))
+    addProdT (TagNode TList) listNt [] (const (elc []))
     helpNt <- processListForm mvdOf concrete left lb
-    addProd listNt [N helpNt] (\rs -> case rs of [ResStlil x] -> elc x; _ -> bad "list")
+    addProdT (TagNode TList) listNt [N helpNt] (\rs -> case rs of [ResStlil x] -> elc x; _ -> bad "list")
     pure (N listNt)
 
 enforceLength :: ListBody -> [Stli] -> Maybe Res
@@ -447,7 +471,7 @@ processListForm mvdOf concrete left lb = do
   entryNt <- gennt "list_entry"
   w <- ws
   entryRhs <- mapM (processElement mvdOf concrete left) (lbElements lb)
-  addProd entryNt entryRhs (\rl -> res (ResStli (StliSingle (processProdRes rl))))
+  addProdT (TagNode TEntry) entryNt entryRhs (\rl -> res (ResStli (StliSingle (processProdRes rl))))
   addProd helpNt [N entryNt] (\rs -> case rs of [ResStli x] -> res (ResStlil [x]); _ -> bad "list_help")
   idx <- case lbSeparator lb of
     Nothing -> do
@@ -468,31 +492,31 @@ processListForm mvdOf concrete left lb = do
           _ -> Nothing
     case lbSeparator lb of
       Nothing ->
-        addProd formNt [N entryNt, w, dotsSym, N entryNt]
+        addProdT (TagNode TListForm) formNt [N entryNt, w, dotsSym, N entryNt]
           (\rs -> case rs of
             [ResStli (StliSingle es1), _, ResInt n', ResStli (StliSingle es2)] -> dotRes es1 n' es2
             _ -> bad "dot form")
       Just t ->
-        addProd formNt ([N entryNt, w] ++ terms t ++ [w, dotsSym, w] ++ terms t ++ [N entryNt])
+        addProdT (TagNode TListForm) formNt ([N entryNt, w] ++ terms t ++ [w, dotsSym, w] ++ terms t ++ [N entryNt])
           (\rs -> case rs of
             [ResStli (StliSingle es1), _, _, ResInt n', _, ResStli (StliSingle es2)] -> dotRes es1 n' es2
             _ -> bad "dot form sep")
-    addProd formNt (prefix ++ token "/>")
+    addProdT (TagNode TListForm) formNt (prefix ++ token "/>")
       (\rs -> case rs of
         [_, ResStli (StliSingle es), _, _, ResString ivr, _] ->
           res (ResStli (StliListform (BoundComp ivr) (map (abstractIndexvarSte ivr 0) es)))
         _ -> bad "comp")
-    addProd formNt (prefix ++ token "IN" ++ [w, indexvarSym] ++ token "/>")
+    addProdT (TagNode TListForm) formNt (prefix ++ token "IN" ++ [w, indexvarSym] ++ token "/>")
       (\rs -> case rs of
         [_, ResStli (StliSingle es), _, _, ResString ivr, _, _, ResString ivr', _] ->
           res (ResStli (StliListform (BoundCompU ivr (SiVar ivr' 0)) (map (abstractIndexvarSte ivr 0) es)))
         _ -> bad "comp u")
-    addProd formNt (prefix ++ token "IN" ++ [w, numberSym, w, dotsSym, w, fancySym] ++ token "/>")
+    addProdT (TagNode TListForm) formNt (prefix ++ token "IN" ++ [w, numberSym, w, dotsSym, w, fancySym] ++ token "/>")
       (\rs -> case rs of
         [_, ResStli (StliSingle es), _, _, ResString ivr, _, _, ResString lower, _, ResInt n, _, ResSi si', _] ->
           res (ResStli (StliListform (BoundCompLU ivr (SiNum lower) si' n) (map (abstractIndexvarSte ivr 0) es)))
         _ -> bad "comp lu")
-    _ <- addProdIdx helpNt [N formNt] (\rs -> case rs of [ResStli x] -> res (ResStlil [x]); _ -> bad "list_help form")
+    addProd helpNt [N formNt] (\rs -> case rs of [ResStli x] -> res (ResStlil [x]); _ -> bad "list_help form")
     case lbSeparator lb of
       Nothing -> () <$ addProdTransp helpNt [N formNt, N helpNt] resStlil
       Just t -> () <$ addProdTransp helpNt ([N formNt, w] ++ terms t ++ [N helpNt]) (\rs -> case rs of [x, _, y] -> resStlil [x, y]; _ -> bad "list_help form sep")

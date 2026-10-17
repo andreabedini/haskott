@@ -17,7 +17,8 @@ import Haskott.Spec (Diagnostic (..))
 import Haskott.Spec.Check (checkDocument)
 import Haskott.Spec.Show (showSpec)
 import Haskott.Syntax
-import Haskott.Term.Parse (makeTermParser, parseComplete)
+import Haskott.Term.Parse (makeTermParser, parseTerms)
+import Haskott.Term.Splice (spliceTerms)
 import Haskott.Term.Symterm (ppPlainSymterm)
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
@@ -54,7 +55,7 @@ main = do
             let tp = makeTermParser spec
                 (root, rest) = T.breakOn ":" (T.drop 1 (T.pack request))
                 text = T.drop 1 rest
-                parses = parseComplete tp root False text
+                parses = parseTerms tp root False text
             if null parses
               then putStrLn "no parses"
               else mapM_ (TIO.putStrLn . ppPlainSymterm) parses
@@ -63,8 +64,18 @@ main = do
       case parseDocument src of
         Left e -> reportError file src e >> exitFailure
         Right tree -> TIO.putStr (dumpTree tree)
+    ["dump", "--terms", file] -> do
+      -- the tree after stage two
+      src <- readSource file
+      case parseDocument src of
+        Left e -> reportError file src e >> exitFailure
+        Right tree -> case checkDocument (rawDocument tree) of
+          Left d -> reportDiagnostic file src d >> exitFailure
+          Right spec -> do
+            let (tree', _, _) = spliceTerms False (makeTermParser spec) tree
+            TIO.putStr (dumpTree tree')
     _ -> do
-      hPutStrLn stderr "usage: haskott check [--picky] FILE...\n       haskott dump FILE\n       haskott showraw FILE\n       haskott spec FILE\n       haskott parse FILE \":root: text\""
+      hPutStrLn stderr "usage: haskott check [--picky] FILE...\n       haskott dump [--terms] FILE\n       haskott showraw FILE\n       haskott spec FILE\n       haskott parse FILE \":root: text\""
       exitFailure
 
 readSource :: FilePath -> IO T.Text
@@ -87,9 +98,13 @@ checkFile picky file = do
       | otherwise -> case checkDocument (rawDocument tree) of
           Left d -> reportDiagnostic file src d >> pure False
           Right spec -> do
-            let (_, diags) = processDefns picky (makeTermParser spec) spec
+            let (tree', tp, warnings) = spliceTerms picky (makeTermParser spec) tree
+                (_, diags) = processDefns picky tp spec
             mapM_ (reportDiagnostic file src) diags
-            if null diags then putStrLn (file ++ ": ok") >> pure True else pure False
+            mapM_ (\d -> reportDiagnostic file src d {diagMessage = "warning: " <> diagMessage d}) warnings
+            if render tree' /= src
+              then putStrLn (file ++ ": TERMS DO NOT ROUND-TRIP") >> pure False
+              else if null diags then putStrLn (file ++ ": ok") >> pure True else pure False
 
 reportDiagnostic :: FilePath -> T.Text -> Diagnostic -> IO ()
 reportDiagnostic file src d =

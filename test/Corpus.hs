@@ -7,7 +7,8 @@
 -- @other-error@ (parsed, then failed later), or @parse-error@. It is
 -- produced by @scripts/ott-acceptance.zsh@. This suite checks that haskott
 -- parses exactly the files Ott parses, and that rendering a parsed file
--- gives the input back.
+-- gives the input back, before and after the rule lines are parsed as
+-- terms.
 --
 -- Paths in the table start with @ott/@ or @haskell-report-ott/@. Those
 -- prefixes name the checkouts of ott and haskell-report-ott, found next to
@@ -21,7 +22,11 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
+import Haskott.Raw (rawDocument)
+import Haskott.Spec.Check (checkDocument)
 import Haskott.Syntax
+import Haskott.Term.Parse (makeTermParser)
+import Haskott.Term.Splice (spliceTerms)
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import System.FilePath (splitDirectories, joinPath, (</>))
@@ -71,6 +76,12 @@ check rel expected src = case (expected, parseDocument src) of
      in Just (rel ++ ":" ++ show l ++ ":" ++ show c ++ ": rejected, Ott accepts: " ++ T.unpack (parseErrorMessage e))
   (ShouldParse, Right tree)
     | render tree /= src -> Just (rel ++ ": does not round-trip")
-    | otherwise -> Nothing
+    | otherwise -> case checkDocument (rawDocument tree) of
+        Left _ -> Nothing
+        Right spec ->
+          -- stage two: the tree with its rule lines parsed still renders
+          -- to the source
+          let (tree', _, _) = spliceTerms False (makeTermParser spec) tree
+           in if render tree' /= src then Just (rel ++ ": does not round-trip after the term splice") else Nothing
   (ShouldFail, Right _) -> Just (rel ++ ": accepted, Ott rejects")
   (ShouldFail, Left _) -> Nothing

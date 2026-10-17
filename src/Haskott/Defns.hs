@@ -165,12 +165,12 @@ processRule picky tp dc d prodName' sr = case sr of
   DefnComRule es _ -> pure (Just (ItemComment es))
   where
     parseWith transform root s range = case justOneParse picky transform tp root False s of
-      Parsed st -> pure st
+      Parsed p -> pure (parseTerm p)
       NoParses -> do
         report range ("no parses of \"" <> s <> "\"")
         pure (StUninterpreted ("no parses of " <> s))
-      MultipleParses sts -> do
-        report range ("multiple parses of \"" <> s <> "\":\n" <> T.unlines (map ppPlainSymterm sts))
+      MultipleParses ps -> do
+        report range ("multiple parses of \"" <> s <> "\":\n" <> T.unlines (map (ppPlainSymterm . parseTerm) ps))
         pure (StUninterpreted "multiple parses")
     premise range s = do
       let (s', name) = ruleNameParse s
@@ -222,20 +222,29 @@ embeddingString s =
              in before <> "-ARG-" <> go (T.drop 2 after)
 
 processClause :: Bool -> TermParser -> FunClass -> FunDefn -> Text -> P (Maybe Funclause)
-processClause picky tp fc fd s = case justOneParse picky userSyntaxTransform tp (fcName fc) False s of
-  Parsed (StNode _ _ es) | not (null es) ->
+processClause picky tp fc fd s = case mapOutcome parseTerm (justOneParse picky userSyntaxTransform tp (fcName fc) False s) of
+  POut (StNode _ _ es) | not (null es) ->
     case (init es, last es) of
       (lhsEs, SteSt rhs) ->
         pure (Just (Funclause (StNode (fdResult fd) (fdResultPrefix fd <> fdName fd) lhsEs) rhs (fdRange fd)))
       _ -> do
         report (fdRange fd) ("function clause \"" <> s <> "\" has no right-hand side")
         pure Nothing
-  Parsed _ -> do
+  POut _ -> do
     report (fdRange fd) ("function clause \"" <> s <> "\" lost")
     pure Nothing
-  NoParses -> do
+  NOut -> do
     report (fdRange fd) ("no parses of \"" <> s <> "\"")
     pure Nothing
-  MultipleParses sts -> do
+  MOut sts -> do
     report (fdRange fd) ("multiple parses of \"" <> s <> "\":\n" <> T.unlines (map ppPlainSymterm sts))
     pure Nothing
+
+-- | An outcome over symbolic terms.
+data Out a = POut a | NOut | MOut [a]
+
+mapOutcome :: (Parse -> a) -> Outcome -> Out a
+mapOutcome f o = case o of
+  Parsed p -> POut (f p)
+  NoParses -> NOut
+  MultipleParses ps -> MOut (map f ps)

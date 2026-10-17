@@ -55,15 +55,25 @@ not about.
   formula, quotation and function clause of every corpus file: all parse
   to the same sets of symbolic terms, and the two tools accept the same
   files.
-- Not yet done: splicing the parsed terms into the lossless tree in place
-  of the rule lines, and any output.
+- Milestone 5, the spliced tree: `Haskott.Term.Splice` replaces every
+  premise, conclusion, function clause and comment-block quotation that
+  parses by the term's lossless subtree (`Haskott.Term.Tree`: production
+  nodes named by rule and production, list nodes, and tokens for
+  terminals, nonterminals, metavariables, variables, pseudo-terminals and
+  bound items, with the whitespace between them), so the whole file is one
+  tree from the document down to the leaves of its terms and still renders
+  byte for byte. The corpus suite checks that round trip on every file
+  that checks. Lines that do not parse stay lines; a term with several
+  parses is spliced with the first unless `--picky`.
+- Not yet done: any output.
 
 `cabal run haskott -- check FILE...` runs the whole pipeline on files and
 reports every problem with its line and column (`--picky` makes several
 parses of a term an error, as `ott -picky_multiple_parses true`); `dump`
-prints the tree, `showraw` the raw specification as Ott prints it, `spec`
-the checked specification, and `parse FILE ':root: text'` every parse of a
-term in Ott's plain form.
+prints the tree after stage one and `dump --terms` after the term splice,
+`showraw` the raw specification as Ott prints it, `spec` the checked
+specification, and `parse FILE ':root: text'` every parse of a term in
+Ott's plain form.
 
 ## Building and testing
 

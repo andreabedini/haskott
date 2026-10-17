@@ -10,6 +10,8 @@ module Haskott.Syntax.Kind
   , isTokenKind
   ) where
 
+import Data.Text (Text)
+
 data Kind
   = -- * Trivia (GRAMMAR.md §7)
     Space
@@ -87,6 +89,24 @@ data Kind
   | Dashes
     -- ^ the run of @-@ that starts a rule-name line
 
+    -- * Tokens of symbolic terms (stage two, §5)
+  | TTerminal
+    -- ^ a terminal of the user's grammar, or a disambiguation delimiter
+  | TNonterm
+    -- ^ a nonterminal: root and suffix as written
+  | TMetavar
+    -- ^ a metavariable: root and suffix as written, or @:name:text@
+  | TVar
+    -- ^ a concrete variable admitted by a @lex@ hom
+  | TProdName
+    -- ^ a @:prodname:@ or @:concrete:@ pseudo-terminal
+  | TIndex
+    -- ^ an index variable in a bound, possibly @-1@
+  | TNumber
+    -- ^ the lower bound of a comprehension
+  | PremiseLabel
+    -- ^ the @:name@ of a named premise
+
     -- * Nodes (§3, §4)
   | Document
   | MetavarDecl
@@ -140,7 +160,22 @@ data Kind
   | HomsItem
   | CoqSection
   | CoqVariable
-  deriving (Eq, Ord, Show, Enum, Bounded)
+
+    -- * Nodes of symbolic terms (stage two)
+  | TNode Text Text
+    -- ^ a production of the user's grammar: the rule's primary root and
+    -- the production's name
+  | TList
+    -- ^ the elements of a list form, possibly none
+  | TEntry
+    -- ^ one entry of a list form
+  | TListForm
+    -- ^ a dot form or a comprehension in a list
+  | PremiseName
+    -- ^ the trailing @[[:name]]@ of a premise
+  | EmbedPremise
+    -- ^ a premise of embedded prover code with quoted terms
+  deriving (Eq, Ord, Show)
 
 -- | Whitespace and comments.
 isTrivia :: Kind -> Bool
@@ -153,4 +188,4 @@ isTrivia k = case k of
 
 -- | Kinds that occur only on tokens.
 isTokenKind :: Kind -> Bool
-isTokenKind k = k < Document
+isTokenKind k = k < Document || k == PremiseLabel

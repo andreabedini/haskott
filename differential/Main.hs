@@ -25,7 +25,7 @@ import Haskott.Spec.Check (checkDocument)
 import Haskott.Spec.Show (Class (..), Tok (..), homsText, prodTokens)
 import Haskott.Syntax (parseDocument)
 import Haskott.Defns (processDefns)
-import Haskott.Term.Parse (makeTermParser, parseComplete)
+import Haskott.Term.Parse (makeTermParser, parseTerms)
 import Haskott.Term.Requests (TermRequest (..), termRequests)
 import Haskott.Term.Symterm (ppPlainSymterm)
 import Data.List (nub, sort)
@@ -121,7 +121,7 @@ compareTerms ott rel file spec = do
       (_, out, _) <- readProcessWithExitCode ott args ""
       let blocks = ottParseBlocks (T.pack out)
           tp = makeTermParser spec
-          mine = [nub (sort (map ppPlainSymterm (parseComplete tp (trRoot r) False (trText r)))) | r <- requests]
+          mine = [nub (sort (map ppPlainSymterm (parseTerms tp (trRoot r) False (trText r)))) | r <- requests]
           theirs = map (nub . sort) blocks
           problems =
             [ T.unpack (trRoot r) ++ " " ++ show (trText r) ++ "\n    haskott: " ++ showParses a ++ "\n    ott:     " ++ showParses b
