@@ -4,8 +4,8 @@
 -- roots and synonyms, classifying the elements of productions, merging dot
 -- forms, resolving hom references to element positions, and performing the
 -- checks of Ott's @grammar_typecheck.ml@ that concern the grammar itself.
--- Rule bodies stay as lines of text until the grammar-derived term parser
--- of stage two exists.
+-- Rule bodies stay as lines of text here; "Haskott.Defns" parses them with
+-- the grammar-derived term parser of "Haskott.Term".
 module Haskott.Spec
   ( Spec (..)
   , MetavarDefn (..)
@@ -30,6 +30,7 @@ module Haskott.Spec
   , FunClass (..)
   , FunDefn (..)
   , SemirawRule (..)
+  , RuleAnnot (..)
   , EmbedEl (..)
   , Diagnostic (..)
   , module Haskott.Spec.Suffix
@@ -38,7 +39,7 @@ module Haskott.Spec
 import Data.Set (Set)
 import Data.Text (Text)
 import Graft.Range (TextRange)
-import Haskott.Raw (EmbedEl (..), SemirawRule (..))
+import Haskott.Raw (EmbedEl (..), RuleAnnot (..), SemirawRule (..))
 import Haskott.Spec.Suffix
 
 data Spec = Spec

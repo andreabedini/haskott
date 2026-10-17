@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 -- | A development front end for the parser.
 --
 -- @haskott check FILE...@ parses each file and reports success or the first
@@ -9,12 +10,15 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import Graft.Range (rangeStart)
+import Haskott.Defns (processDefns)
 import Haskott.Raw (rawDocument)
 import Haskott.Raw.Show (showRaw)
 import Haskott.Spec (Diagnostic (..))
 import Haskott.Spec.Check (checkDocument)
 import Haskott.Spec.Show (showSpec)
 import Haskott.Syntax
+import Haskott.Term.Parse (makeTermParser, parseComplete)
+import Haskott.Term.Symterm (ppPlainSymterm)
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
@@ -24,7 +28,8 @@ main = do
   args <- getArgs
   case args of
     ("check" : files@(_ : _)) -> do
-      results <- mapM checkFile files
+      let (picky, files') = (any (== "--picky") files, filter (/= "--picky") files)
+      results <- mapM (checkFile picky) files'
       if and results then pure () else exitFailure
     ["showraw", file] -> do
       src <- readSource file
@@ -36,18 +41,30 @@ main = do
       case parseDocument src of
         Left e -> reportError file src e >> exitFailure
         Right tree -> case checkDocument (rawDocument tree) of
-          Left d -> do
-            let (l, c) = offsetPosition src (rangeStart (diagRange d))
-            putStrLn (file ++ ":" ++ show l ++ ":" ++ show c ++ ": " ++ T.unpack (diagMessage d))
-            exitFailure
+          Left d -> reportDiagnostic file src d >> exitFailure
           Right spec -> TIO.putStr (showSpec spec)
+    ["parse", file, request] -> do
+      -- like ott -parse ':root: text': every parse, in plain form
+      src <- readSource file
+      case parseDocument src of
+        Left e -> reportError file src e >> exitFailure
+        Right tree -> case checkDocument (rawDocument tree) of
+          Left d -> putStrLn (T.unpack (diagMessage d)) >> exitFailure
+          Right spec -> do
+            let tp = makeTermParser spec
+                (root, rest) = T.breakOn ":" (T.drop 1 (T.pack request))
+                text = T.drop 1 rest
+                parses = parseComplete tp root False text
+            if null parses
+              then putStrLn "no parses"
+              else mapM_ (TIO.putStrLn . ppPlainSymterm) parses
     ["dump", file] -> do
       src <- readSource file
       case parseDocument src of
         Left e -> reportError file src e >> exitFailure
         Right tree -> TIO.putStr (dumpTree tree)
     _ -> do
-      hPutStrLn stderr "usage: haskott check FILE...\n       haskott dump FILE\n       haskott showraw FILE\n       haskott spec FILE"
+      hPutStrLn stderr "usage: haskott check [--picky] FILE...\n       haskott dump FILE\n       haskott showraw FILE\n       haskott spec FILE\n       haskott parse FILE \":root: text\""
       exitFailure
 
 readSource :: FilePath -> IO T.Text
@@ -59,14 +76,25 @@ readSource file = do
       exitFailure
     Right t -> pure t
 
-checkFile :: FilePath -> IO Bool
-checkFile file = do
+-- | The whole pipeline on one file: parse, check, process the definitions.
+checkFile :: Bool -> FilePath -> IO Bool
+checkFile picky file = do
   src <- readSource file
   case parseDocument src of
     Left e -> reportError file src e >> pure False
     Right tree
-      | render tree == src -> putStrLn (file ++ ": ok") >> pure True
-      | otherwise -> putStrLn (file ++ ": PARSED BUT DOES NOT ROUND-TRIP") >> pure False
+      | render tree /= src -> putStrLn (file ++ ": PARSED BUT DOES NOT ROUND-TRIP") >> pure False
+      | otherwise -> case checkDocument (rawDocument tree) of
+          Left d -> reportDiagnostic file src d >> pure False
+          Right spec -> do
+            let (_, diags) = processDefns picky (makeTermParser spec) spec
+            mapM_ (reportDiagnostic file src) diags
+            if null diags then putStrLn (file ++ ": ok") >> pure True else pure False
+
+reportDiagnostic :: FilePath -> T.Text -> Diagnostic -> IO ()
+reportDiagnostic file src d =
+  let (l, c) = offsetPosition src (rangeStart (diagRange d))
+   in putStrLn (file ++ ":" ++ show l ++ ":" ++ show c ++ ": " ++ T.unpack (diagMessage d))
 
 reportError :: FilePath -> T.Text -> ParseError -> IO ()
 reportError file src e =

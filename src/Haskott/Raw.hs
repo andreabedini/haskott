@@ -28,6 +28,7 @@ module Haskott.Raw
   , DefnClass (..)
   , Defn (..)
   , SemirawRule (..)
+  , RuleAnnot (..)
   , FunClass (..)
   , FunDefn (..)
   , rawDocument
@@ -236,10 +237,19 @@ data Defn = Defn
 -- | A rule as lines of text (GRAMMAR.md §4). Lines keep their indentation,
 -- as Ott's @LINE@ token does.
 data SemirawRule
-  = LinedRule [Text] Text [Text] TextRange
-  -- ^ premises, the annotation after the dashes, conclusions
+  = LinedRule [Text] Text RuleAnnot [Text] TextRange
+  -- ^ premises, the annotation after the dashes as written and parsed,
+  -- conclusions
   | LinelessRule [Text] TextRange
   | DefnComRule [EmbedEl] TextRange
+  deriving (Eq, Show)
+
+-- | The annotation of a rule line: categories, name and homs.
+data RuleAnnot = RuleAnnot
+  { raCategories :: [Text]
+  , raName :: Text
+  , raHoms :: [Hom]
+  }
   deriving (Eq, Show)
 
 data FunClass = FunClass
@@ -578,6 +588,9 @@ bodyItem b = case b of
     LinedRule
       (map lineOf (drulePremises r))
       (maybe T.empty ruleLineAnnotation (druleRuleLine r))
+      (case druleRuleLine r of
+        Just rl -> RuleAnnot (ruleLineCategories rl) (ruleLineName rl) (map hom (ruleLineHoms rl))
+        Nothing -> RuleAnnot [] T.empty [])
       (map lineOf (druleConclusions r))
       (cursorRange (nodeSyntax r))
   BodyLineless l -> LinelessRule (map lineOf (linelessFormulas l)) (cursorRange (nodeSyntax l))

@@ -24,6 +24,11 @@ import Haskott.Spec (Spec (..), Rule (..), Prod (..), Diagnostic (..))
 import Haskott.Spec.Check (checkDocument)
 import Haskott.Spec.Show (Class (..), Tok (..), homsText, prodTokens)
 import Haskott.Syntax (parseDocument)
+import Haskott.Defns (processDefns)
+import Haskott.Term.Parse (makeTermParser, parseComplete)
+import Haskott.Term.Requests (TermRequest (..), termRequests)
+import Haskott.Term.Symterm (ppPlainSymterm)
+import Data.List (nub, sort)
 import System.Environment (getArgs, lookupEnv)
 import System.Exit (exitFailure)
 import System.FilePath (joinPath, splitDirectories, (</>))
@@ -44,7 +49,7 @@ main = do
         _ -> rel
   table <- TIO.readFile "test/ott-acceptance.tsv"
   let entries =
-        [ T.unpack path
+        [ (T.unpack path, cls == "accepted")
         | line <- T.lines table
         , not (T.null line)
         , not ("#" `T.isPrefixOf` line)
@@ -52,7 +57,7 @@ main = do
         , cls /= "parse-error"
         , let path = T.drop 1 rest
         ]
-  results <- forM entries $ \rel -> do
+  results <- forM entries $ \(rel, ottAccepted) -> do
     let file = resolve rel
     bytes <- B.readFile file
     case TE.decodeUtf8' bytes of
@@ -68,9 +73,18 @@ main = do
             Just failure -> pure (Just failure)
             Nothing -> do
               (_, sorted, _) <- readProcessWithExitCode ott ["-i", file, "-show_sort", "true"] ""
-              pure (compareChecked rel (checkDocument raw) (T.pack sorted))
+              let checked = checkDocument raw
+              case compareChecked rel checked (T.pack sorted) of
+                Just failure -> pure (Just failure)
+                Nothing -> case checked of
+                  Right spec | "AFTER CHECK, DISAMBIGUATE AND SORT" `T.isInfixOf` T.pack sorted -> do
+                    termsResult <- compareTerms ott rel file spec
+                    case termsResult of
+                      Just failure -> pure (Just failure)
+                      Nothing -> pure (compareAcceptance rel ottAccepted spec)
+                  _ -> pure Nothing
   let failures = [f | Just f <- results]
-  putStrLn (show (length entries) ++ " files compared with ott -showraw and -show_sort, " ++ show (length failures) ++ " disagreements")
+  putStrLn (show (length entries) ++ " files compared with ott -showraw, -show_sort and -parse, " ++ show (length failures) ++ " disagreements")
   mapM_ putStrLn failures
   unless (null failures) exitFailure
   where
@@ -82,6 +96,63 @@ dropVersionLine :: T.Text -> T.Text
 dropVersionLine t = case T.lines t of
   (first : _) | "Ott version" `T.isPrefixOf` first -> T.drop (T.length first + 1) t
   _ -> t
+
+-- | Ott accepts a file when, after the checks, every rule and clause
+-- parses; haskott must agree, processing the definitions as Ott does
+-- without a picky-parses option.
+compareAcceptance :: FilePath -> Bool -> Spec -> Maybe String
+compareAcceptance rel ottAccepted spec =
+  let (_, diags) = processDefns False (makeTermParser spec) spec
+   in case (ottAccepted, diags) of
+        (True, d : _) -> Just (rel ++ ": haskott reports a problem in the definitions of a file Ott accepts: " ++ T.unpack (diagMessage d))
+        (False, []) -> Just (rel ++ ": haskott accepts the definitions of a file Ott rejects")
+        _ -> Nothing
+
+-- | Compare the parses of every term of the specification with Ott's: one
+-- @ott -parse ':root: text'@ per term, in a single process, each printing
+-- all parses in plain form.
+compareTerms :: FilePath -> FilePath -> FilePath -> Spec -> IO (Maybe String)
+compareTerms ott rel file spec = do
+  let requests = [r | r <- termRequests spec, not (T.null (T.strip (trText r)))]
+  if null requests
+    then pure Nothing
+    else do
+      let args = ["-i", file] ++ concat [["-parse", ":" ++ T.unpack (trRoot r) ++ ": " ++ T.unpack (trText r)] | r <- requests]
+      (_, out, _) <- readProcessWithExitCode ott args ""
+      let blocks = ottParseBlocks (T.pack out)
+          tp = makeTermParser spec
+          mine = [nub (sort (map ppPlainSymterm (parseComplete tp (trRoot r) False (trText r)))) | r <- requests]
+          theirs = map (nub . sort) blocks
+          problems =
+            [ T.unpack (trRoot r) ++ " " ++ show (trText r) ++ "\n    haskott: " ++ showParses a ++ "\n    ott:     " ++ showParses b
+            | (r, a, b) <- zip3 requests mine (theirs ++ repeat ["<missing>"])
+            , a /= b
+            ]
+      pure $
+        if null blocks && "Error" `T.isInfixOf` T.pack out
+          then Nothing -- Ott stopped in its definitions before the test parses
+          else if length blocks /= length requests
+          then Just (rel ++ ": ott printed " ++ show (length blocks) ++ " parse blocks for " ++ show (length requests) ++ " terms")
+          else
+            if null problems
+              then Nothing
+              else Just (rel ++ ": " ++ show (length problems) ++ " of " ++ show (length requests) ++ " terms differ\n  " ++ unlines' (take 6 problems))
+  where
+    showParses ps = case ps of
+      [] -> "no parses"
+      _ -> unwords' ps
+    unwords' = foldr1 (\a b -> a ++ " | " ++ b) . map T.unpack
+    unlines' = foldr1 (\a b -> a ++ "\n  " ++ b)
+
+-- | The plain parses Ott printed for each @-parse@ request, in order.
+ottParseBlocks :: T.Text -> [[T.Text]]
+ottParseBlocks out = map plains (drop 1 (splitOn' (T.lines out)))
+  where
+    splitOn' ls = case break ("test parse: string " `T.isPrefixOf`) ls of
+      (before, []) -> [before]
+      (before, h : rest) -> before : splitOn' (h : rest `seq` restAfter rest)
+    restAfter rest = rest
+    plains = filter ("(St_" `T.isPrefixOf`)
 
 -- | Compare the checked specification with Ott's @-show_sort@ printout:
 -- Ott and haskott must agree on whether the file checks, and for every

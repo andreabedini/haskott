@@ -42,12 +42,28 @@ not about.
   compares it with `ott -show_sort`: on all 155 corpus files the two agree
   on whether the file checks and, for every production, on each element's
   text and class and on the homs.
-- Not yet done: the grammar-derived parser for the symbolic terms in rule
-  lines, and any output.
+- Milestone 4, the term parser: `Haskott.Term.Grammar` builds the
+  character-level grammar of symbolic terms from the checked specification
+  exactly as Ott's `new_term_parser.ml` does (whitespace, suffixes, index
+  variables, concrete variables, list forms with dot forms and
+  comprehensions, `:prodname:` and `:concrete:` pseudo-terminals, follow
+  restrictions, reject and transparent productions, priorities), and
+  `Haskott.Term.Earley` parses with it: an Earley recogniser followed by
+  derivation enumeration under the same rejects and Visser-style priority
+  checks. `Haskott.Defns` processes the definitions as Ott's `defns.ml`
+  does. The differential runs `ott -parse` on every premise, conclusion,
+  formula, quotation and function clause of every corpus file: all parse
+  to the same sets of symbolic terms, and the two tools accept the same
+  files.
+- Not yet done: splicing the parsed terms into the lossless tree in place
+  of the rule lines, and any output.
 
-`cabal run haskott -- check FILE...` parses files and reports the first
-error with its line and column; `dump` prints the tree, `showraw` the raw
-specification as Ott prints it, and `spec` the checked specification.
+`cabal run haskott -- check FILE...` runs the whole pipeline on files and
+reports every problem with its line and column (`--picky` makes several
+parses of a term an error, as `ott -picky_multiple_parses true`); `dump`
+prints the tree, `showraw` the raw specification as Ott prints it, `spec`
+the checked specification, and `parse FILE ':root: text'` every parse of a
+term in Ott's plain form.
 
 ## Building and testing
 
