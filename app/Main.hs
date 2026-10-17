@@ -8,6 +8,8 @@ import qualified Data.ByteString as B
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
+import Haskott.Raw (rawDocument)
+import Haskott.Raw.Show (showRaw)
 import Haskott.Syntax
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
@@ -20,13 +22,18 @@ main = do
     ("check" : files@(_ : _)) -> do
       results <- mapM checkFile files
       if and results then pure () else exitFailure
+    ["showraw", file] -> do
+      src <- readSource file
+      case parseDocument src of
+        Left e -> reportError file src e >> exitFailure
+        Right tree -> TIO.putStr (showRaw (rawDocument tree))
     ["dump", file] -> do
       src <- readSource file
       case parseDocument src of
         Left e -> reportError file src e >> exitFailure
         Right tree -> TIO.putStr (dumpTree tree)
     _ -> do
-      hPutStrLn stderr "usage: haskott check FILE...\n       haskott dump FILE"
+      hPutStrLn stderr "usage: haskott check FILE...\n       haskott dump FILE\n       haskott showraw FILE"
       exitFailure
 
 readSource :: FilePath -> IO T.Text

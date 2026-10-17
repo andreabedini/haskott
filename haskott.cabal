@@ -28,7 +28,10 @@ library
     default-language: Haskell2010
     exposed-modules:
         Haskott
+        Haskott.Raw
+        Haskott.Raw.Show
         Haskott.Syntax
+        Haskott.Syntax.Ast
         Haskott.Syntax.Kind
         Haskott.Syntax.Parser
     build-depends:
@@ -44,6 +47,19 @@ executable haskott
     build-depends:
         base,
         bytestring,
+        text,
+        haskott
+
+executable haskott-differential
+    import:           warnings
+    hs-source-dirs:   differential
+    default-language: GHC2021
+    main-is:          Main.hs
+    build-depends:
+        base,
+        bytestring,
+        filepath,
+        process,
         text,
         haskott
 

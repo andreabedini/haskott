@@ -26,7 +26,13 @@ not about.
   (Ott's 125 `tests/` and 33 `examples/` files plus the report's
   `expressions.ott`) it accepts exactly the files Ott 0.34 accepts and
   renders every accepted file back byte for byte (`cabal test`).
-- Not yet done: the projection of the tree to a checked specification, the
+- Milestone 3a, the raw specification: `Haskott.Syntax.Ast` gives typed
+  views over the tree and `Haskott.Raw` projects them into plain data, the
+  counterpart of Ott's raw parse. `cabal run haskott-differential` prints
+  it in the format of `ott -showraw` and compares with Ott on every corpus
+  file; all 155 agree byte for byte.
+- Not yet done: the checked specification (resolved roots, element classes,
+  hom references, the checks Ott's typechecker performs), the
   grammar-derived parser for the symbolic terms in rule lines, and any
   output.
 
