@@ -31,6 +31,7 @@ library
         Haskott.Defns
         Haskott.Diagnostics
         Haskott.Load
+        Haskott.Project
         Haskott.Raw
         Haskott.Raw.Show
         Haskott.Rename
@@ -53,9 +54,11 @@ library
         Haskott.Typst
     build-depends:
         base         >=4.18 && <5,
+        aeson        >=2.1  && <2.3,
         array        >=0.5  && <0.6,
         bytestring   >=0.11 && <0.13,
         containers   >=0.6  && <0.9,
+        filepath     >=1.4  && <1.6,
         text         >=2.0  && <2.2,
         transformers >=0.5  && <0.7,
         graft        >=0.1  && <0.2
@@ -65,10 +68,19 @@ executable haskott
     hs-source-dirs:   app
     default-language: GHC2021
     main-is:          Main.hs
+    other-modules:    Server
+    ghc-options:      -threaded
     build-depends:
         base,
         bytestring,
+        containers,
+        deepseq,
+        directory,
+        filepath,
         graft,
+        lens,
+        lsp       >=2.7 && <2.9,
+        lsp-types >=2.3 && <2.5,
         text,
         haskott
 
@@ -130,3 +142,21 @@ test-suite recovery
         text,
         graft,
         haskott
+
+test-suite lsp
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    default-language: GHC2021
+    main-is:          Lsp.hs
+    build-tool-depends: haskott:haskott
+    build-depends:
+        base,
+        directory,
+        filepath,
+        lens,
+        lsp-test  >=0.17 && <0.19,
+        lsp-types,
+        parser-combinators,
+        temporary,
+        text

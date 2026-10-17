@@ -107,8 +107,24 @@ not about.
   every corpus file one at a time and checks that each costs only its own
   line, and the corpus suite checks the first problem of every file
   against `test/first-diagnostics.tsv`.
+- Milestone 9, language server: `haskott lsp` speaks the Language Server
+  Protocol over stdio and reports every problem (`Haskott.Diagnostics`)
+  of the specifications an edited file is part of, a short while after
+  the last change; a newer change cancels a check still running. A
+  specification can span several files, so the workspace lists them in
+  `haskott.json` at its root, in the order Ott reads them:
+
+  ```json
+  { "specs": [ { "files": ["ott/style.ott", "ott/expressions.ott"], "picky": true },
+               { "files": ["ott/style.ott", "ott/layout.ott"], "picky": true } ] }
+  ```
+
+  A file in several specifications shows the problems of all of them, and
+  a file none lists is checked on its own. Open files are read from the
+  editor, the others from disk. `cabal test lsp` drives the server through
+  a client. Diagnostics only for now: navigation and rename come next.
 - Not yet done: TeX output, Ott's remaining checks (bounds consistency at
-  output time among them), prover back ends, a language server.
+  output time among them), prover back ends.
 
 haskott takes Ott's command line for the implemented part: `haskott -i
 FILE... -o OUT.typ [-typst_filter SRC DST] [-picky_multiple_parses BOOL]

@@ -5,8 +5,9 @@
 -- With Ott's options (@-i FILE@, @-o FILE.typ@, @-typst_filter SRC DST@,
 -- @-picky_multiple_parses BOOL@, @-tex_name_prefix P@, ...) haskott runs
 -- the whole pipeline and writes Typst output, so that it can stand in for
--- @ott@ in a Makefile. The development subcommands @check@, @dump@,
--- @showraw@, @spec@ and @parse@ look at one stage each.
+-- @ott@ in a Makefile. @lsp@ runs a language server over stdio. The
+-- development subcommands @check@, @dump@, @showraw@, @spec@ and @parse@
+-- look at one stage each.
 module Main (main) where
 
 import Control.Monad (forM, forM_, unless, when)
@@ -30,6 +31,7 @@ import Haskott.Term.Parse
 import Haskott.Term.Splice (spliceTerms)
 import Haskott.Term.Symterm (ppPlainSymterm)
 import Haskott.Typst
+import Server (serverMain)
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
@@ -85,6 +87,8 @@ main = do
             let (tree', _, _) = spliceTerms (FirstIfSame []) (makeTermParser spec) tree
             TIO.putStr (dumpTree tree')
     ("rename" : rest) -> renameMain rest
+    -- editors may add --stdio
+    ("lsp" : _) -> serverMain
     ("roots" : files@(_ : _)) -> do
       -- the names rename accepts, one per line
       texts <- forM files $ \f -> (,) f <$> readSource f
@@ -93,7 +97,7 @@ main = do
         Right l -> mapM_ TIO.putStrLn (renameableRoots (ldSpec l))
     (('-' : _) : _) -> ottMain args
     _ -> do
-      hPutStrLn stderr "usage: haskott [-i FILE]... [-o FILE.typ]... [-typst_filter SRC DST]... [OPTION]...\n       haskott rename [--write] OLD NEW FILE...\n       haskott check [--picky] FILE...\n       haskott dump [--terms] FILE\n       haskott showraw FILE\n       haskott spec FILE\n       haskott parse FILE \":root: text\""
+      hPutStrLn stderr "usage: haskott [-i FILE]... [-o FILE.typ]... [-typst_filter SRC DST]... [OPTION]...\n       haskott rename [--write] OLD NEW FILE...\n       haskott lsp\n       haskott check [--picky] FILE...\n       haskott dump [--terms] FILE\n       haskott showraw FILE\n       haskott spec FILE\n       haskott parse FILE \":root: text\""
       exitFailure
 
 ------------------------------------------------------------------------
