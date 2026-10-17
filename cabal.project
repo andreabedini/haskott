@@ -1,0 +1,8 @@
+-- haskott and its sibling checkout of graft, the lossless tree library.
+-- The layout is fixed:
+--
+--   <parent>/haskott   (this repository)
+--   <parent>/graft     (a checkout of andreabedini/graft)
+packages:
+  .
+  ../graft

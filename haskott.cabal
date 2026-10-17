@@ -1,0 +1,30 @@
+cabal-version:   3.0
+name:            haskott
+version:         0.1.0.0
+synopsis:        A Haskell reimplementation of the Ott semantics tool
+description:
+    A reimplementation of Ott (Sewell et al., JFP 2010) in Haskell. Ott source
+    files are parsed into a lossless concrete syntax tree (graft), checked, and
+    typeset. See GRAMMAR.md for the specification of the Ott source language.
+category:        Language
+license:         BSD-3-Clause
+author:          Andrea Bedini
+maintainer:      andrea@bedini.au
+build-type:      Simple
+tested-with:     GHC ==9.12.2
+extra-doc-files:
+    README.md
+    GRAMMAR.md
+
+common warnings
+    ghc-options: -Wall -Widentities -Wcompat -Wincomplete-uni-patterns
+
+library
+    import:           warnings
+    hs-source-dirs:   src
+    default-language: Haskell2010
+    exposed-modules:  Haskott
+    build-depends:
+        base  >=4.18 && <5,
+        text  >=2.0  && <2.2,
+        graft >=0.1  && <0.2
