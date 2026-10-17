@@ -118,8 +118,13 @@ checkDocument doc = do
   embeds' <- mapM cdEmbed embeds
   let allProdNames = [prodName p | r <- rules, p <- ruleProds r]
   parsing <- mapM (cdParsingAnnotation allProdNames) pas
-  defnClasses <- forM [dc | ClassDefn dc <- classes''] (cdDefnClass ctx)
-  funClasses <- forM [fc | ClassFun fc <- classes''] (cdFunClass ctx userRules')
+  classItems <- forM classes'' $ \c -> case c of
+    ClassDefn dc -> ClassReln <$> cdDefnClass ctx dc
+    ClassFun fc -> ClassFuns <$> cdFunClass ctx userRules' fc
+  let defnClasses = [dc | ClassReln dc <- classItems]
+      funClasses = [fc | ClassFuns fc <- classItems]
+  promotion <- subrulePromotion subrules srd rules
+  let srd' = srd {srdPromotion = promotion}
 
   -- auxiliary functions, from the non-meta rules
   let auxfns =
@@ -139,13 +144,14 @@ checkDocument doc = do
       { specMetavars = metavars
       , specRules = rules
       , specSubrules = subrules
-      , specSubruleData = srd
+      , specSubruleData = srd'
       , specContextrules = contextrules
       , specSubstitutions = substitutions
       , specFreevars = freevars
       , specEmbeds = embeds'
       , specParsing = parsing
       , specIndexvars = mvrsIndex
+      , specClasses = classItems
       , specDefnClasses = defnClasses
       , specFunClasses = funClasses
       , specAuxfns = auxfns
@@ -893,7 +899,7 @@ cdSubrules c rsrs = do
   let promote n = if n `elem` tops then n else fromMaybe n (listToMaybe (topsAbove n))
       srs1 = [s {srTop = promote (srUpper s)} | s <- srs0]
       psd = [(n, [a | (a, b) <- tc, b == n]) | n <- nodes]
-  pure (srs1, SubruleData psd tc)
+  pure (srs1, SubruleData psd tc [])
 
 cdContextrule :: Ctx -> R.Contextrule -> Check Contextrule
 cdContextrule c cr = do
@@ -979,6 +985,33 @@ cdFunClass c rules fc = do
 
 ------------------------------------------------------------------------
 -- Step 10 (the part implemented)
+
+-- | Ott's subrule check: every production of a lower rule must match a
+-- production of its upper rule, element by element, nonterminals up to
+-- the subrule order. The match against the top rule is recorded: a term
+-- of the lower rule is printed with the top rule's production.
+subrulePromotion :: [Subrule] -> SubruleData -> [Rule] -> Check [(Text, (Text, [(Text, Text)]))]
+subrulePromotion srs srd rules = do
+  forM_ srs $ \sr -> matching (srLower sr) (srUpper sr)
+  forM srs $ \sr -> do
+    pps <- matching (srLower sr) (srTop sr)
+    pure (srLower sr, (srTop sr, pps))
+  where
+    graph = srdGraph srd
+    ruleOf n = fromMaybe (error ("subrulePromotion: no rule " ++ T.unpack n)) (find ((== n) . ruleName) rules)
+    matching l u = do
+      let rl = ruleOf l
+          ru = ruleOf u
+      forM (ruleProds rl) $ \pl -> case [pu | pu <- ruleProds ru, subelements (prodElements pl) (prodElements pu)] of
+        [] -> err (prodRange pl) ("subrule check failed: production " <> prodName pl <> " of rule " <> l <> " cannot be matched in rule " <> u)
+        pu : _ -> pure (prodName pl, prodName pu)
+    subelements as bs = length as == length bs && and (zipWith subelement as bs)
+    subelement el eu = case (el, eu) of
+      (Nonterm pl _ _, Nonterm pu _ _) -> pl == pu || (pl, pu) `elem` graph
+      (Metavar {}, Metavar {}) -> el == eu
+      (Terminal _, Terminal _) -> el == eu
+      (ListForm a, ListForm b) -> lbSeparator a == lbSeparator b && lbBound a == lbBound b && subelements (lbElements a) (lbElements b)
+      _ -> False
 
 checkSpec :: [Subrule] -> [Rule] -> [(Text, Text)] -> Check ()
 checkSpec srs rules auxfns = do

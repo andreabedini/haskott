@@ -11,6 +11,9 @@ module Haskott.Term.Parse
   , Parse (..)
   , parseComplete
   , parseTerms
+  , noParsesErrorString
+  , ParsePolicy (..)
+  , selectParse
   , Outcome (..)
   , justOneParse
   , Transform
@@ -23,7 +26,9 @@ import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
 import Haskott.Spec (Spec)
-import Haskott.Term.Earley (DTree, parseAll)
+import Haskott.Term.Earley (DTree, parseAll, parseAllFurthest)
+import qualified Data.Text.Encoding as TE
+import qualified Data.ByteString as B
 import Haskott.Term.Grammar
 import Haskott.Term.Symterm
 
@@ -60,6 +65,19 @@ parseComplete tp ntr concrete s
   where
     s' = stripTrailingWhitespace s
 
+-- | Ott's message for a term with no parses: the text split at the
+-- furthest position the parser reached, counted in bytes.
+noParsesErrorString :: TermParser -> Text -> Bool -> Text -> Text
+noParsesErrorString tp ntr concrete s =
+  let s' = stripTrailingWhitespace s
+      furthest = case startSymbol (termGrammar tp) ntr concrete of
+        Nothing -> 0
+        Just start -> snd (parseAllFurthest (termGrammar tp) start s')
+      -- Ott counts the character it failed on
+      pos = min (furthest + 1) (T.length s')
+      c = B.length (TE.encodeUtf8 (T.take pos s'))
+   in "no parses (char " <> T.pack (show c) <> "): " <> T.take pos s <> "***" <> T.drop pos s <> " "
+
 parseTerms :: TermParser -> Text -> Bool -> Text -> [Symterm]
 parseTerms tp ntr concrete s = map parseTerm (parseComplete tp ntr concrete s)
 
@@ -91,11 +109,28 @@ data Outcome
   | NoParses
   | MultipleParses [Parse]
 
--- | Ott's @just_one_parse@. With @picky@ off, several parses yield the
--- first, as Ott does when no output target is requested.
-justOneParse :: Bool -> Transform -> TermParser -> Text -> Bool -> Text -> Outcome
-justOneParse picky transform tp ntr concrete s =
+-- | What to do with several parses of a term: Ott's
+-- @-picky_multiple_parses@ makes them an error; otherwise the first is
+-- taken when every output target prints all of them the same way, so
+-- with no targets the first is always taken.
+data ParsePolicy
+  = Picky
+  | FirstIfSame [Symterm -> Text]
+
+-- | The parse to use among several, under the policy.
+selectParse :: ParsePolicy -> [Parse] -> Maybe Parse
+selectParse policy ps = case ps of
+  [p] -> Just p
+  [] -> Nothing
+  p : rest -> case policy of
+    Picky -> Nothing
+    FirstIfSame renderers
+      | all (\render -> all (\q -> render (parseTerm q) == render (parseTerm p)) rest) renderers -> Just p
+      | otherwise -> Nothing
+
+-- | Ott's @just_one_parse@.
+justOneParse :: ParsePolicy -> Transform -> TermParser -> Text -> Bool -> Text -> Outcome
+justOneParse policy transform tp ntr concrete s =
   case transform (parseComplete tp ntr concrete s) of
-    [p] -> Parsed p
     [] -> NoParses
-    ps@(p : _) -> if picky then MultipleParses ps else Parsed p
+    ps -> maybe (MultipleParses ps) Parsed (selectParse policy ps)

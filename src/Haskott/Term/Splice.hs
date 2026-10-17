@@ -10,7 +10,7 @@
 -- renders to the source byte for byte. A premise's trailing @[[:name]]@
 -- becomes a 'PremiseName' node, and a premise of embedded prover code an
 -- 'EmbedPremise' node whose quotations are terms. A line with no parse,
--- or with several in picky mode, is left as it was; the diagnostics for
+-- or with several that the policy does not resolve, is left as it was; the diagnostics for
 -- those come from "Haskott.Defns", which parses the same lines (through
 -- the cache this splice returns). Lines of lineless blocks, which Ott joins
 -- into one term, are left as lines.
@@ -40,8 +40,8 @@ type S = State (ParseCache, [Diagnostic])
 -- new tree, the parser with every parse made cached, and the quotations
 -- of comment blocks that did not parse (Ott parses those only when it
 -- produces output, so they are warnings rather than errors).
-spliceTerms :: Bool -> TermParser -> GreenNode Kind -> (GreenNode Kind, TermParser, [Diagnostic])
-spliceTerms picky tp doc =
+spliceTerms :: ParsePolicy -> TermParser -> GreenNode Kind -> (GreenNode Kind, TermParser, [Diagnostic])
+spliceTerms policy tp doc =
   let c = rootCursor (Node doc)
       (els, (cache, diags)) = runState (concat <$> mapM top (cursorChildren c)) (M.empty, [])
    in (greenNode (nodeKind doc) els, withCache cache tp, reverse diags)
@@ -162,10 +162,9 @@ spliceTerms picky tp doc =
             Just ps -> ps
             Nothing -> parseComplete tp root False s
       modify (\(ca, ds) -> (M.insert key parses ca, ds))
-      pure $ case transform parses of
-        [p] -> Just (termElements (termGrammar tp) (snd key) (parseTree p))
-        (p : _) | not picky -> Just (termElements (termGrammar tp) (snd key) (parseTree p))
-        _ -> Nothing
+      pure $ case selectParse policy (transform parses) of
+        Just p -> Just (termElements (termGrammar tp) (snd key) (parseTree p))
+        Nothing -> Nothing
 
     tokenTextOf c = case cursorGreen c of
       Token t -> tokenText t

@@ -25,7 +25,7 @@ import qualified Data.Text.IO as TIO
 import Haskott.Raw (rawDocument)
 import Haskott.Spec.Check (checkDocument)
 import Haskott.Syntax
-import Haskott.Term.Parse (makeTermParser)
+import Haskott.Term.Parse (ParsePolicy (..), makeTermParser)
 import Haskott.Term.Splice (spliceTerms)
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
@@ -81,7 +81,7 @@ check rel expected src = case (expected, parseDocument src) of
         Right spec ->
           -- stage two: the tree with its rule lines parsed still renders
           -- to the source
-          let (tree', _, _) = spliceTerms False (makeTermParser spec) tree
+          let (tree', _, _) = spliceTerms (FirstIfSame []) (makeTermParser spec) tree
            in if render tree' /= src then Just (rel ++ ": does not round-trip after the term splice") else Nothing
   (ShouldFail, Right _) -> Just (rel ++ ": accepted, Ott rejects")
   (ShouldFail, Left _) -> Nothing

@@ -25,6 +25,7 @@ module Haskott.Spec
   , RootRef (..)
   , Embed (..)
   , ParsingAnnotation (..)
+  , ClassItem (..)
   , DefnClass (..)
   , Defn (..)
   , FunClass (..)
@@ -57,6 +58,8 @@ data Spec = Spec
   , specParsing :: [ParsingAnnotation]
   , specIndexvars :: [Text]
   -- ^ every index variable root and synonym
+  , specClasses :: [ClassItem]
+  -- ^ the definition and function classes in source order
   , specDefnClasses :: [DefnClass]
   , specFunClasses :: [FunClass]
   , specAuxfns :: [(Text, Text)]
@@ -162,6 +165,9 @@ data SubruleData = SubruleData
   -- ^ each root in the order with the roots strictly below it
   , srdGraph :: [(Text, Text)]
   -- ^ the transitive closure of the declared pairs
+  , srdPromotion :: [(Text, (Text, [(Text, Text)]))]
+  -- ^ each lower root to its top root and, for each of its productions,
+  -- the production of the top rule it matches
   }
   deriving (Eq, Show)
 
@@ -208,6 +214,9 @@ data ParsingAnnotation = ParsingAnnotation
   , paRight :: Text
   , paRange :: TextRange
   }
+  deriving (Eq, Show)
+
+data ClassItem = ClassReln DefnClass | ClassFuns FunClass
   deriving (Eq, Show)
 
 -- | A definition class with its homs from hom sections merged in. The

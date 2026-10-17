@@ -13,6 +13,7 @@
 module Haskott.Term.Earley
   ( DTree (..)
   , parseAll
+  , parseAllFurthest
   ) where
 
 import Data.Array (Array)
@@ -39,13 +40,19 @@ data DTree = DTree
 -- | Every result of parsing the whole input from the start nonterminal,
 -- with its derivation.
 parseAll :: Grammar -> NtId -> Text -> [(Res, DTree)]
-parseAll g start input =
+parseAll g start input = fst (parseAllFurthest g start input)
+
+-- | The parses, and the furthest position the recogniser reached: the
+-- number of characters before the first position with no items, as
+-- Ott reports it when there are no parses.
+parseAllFurthest :: Grammar -> NtId -> Text -> ([(Res, DTree)], Int)
+parseAllFurthest g start input =
   let s = T.unpack input
       n = length s
       chars = listArray (0, max 0 (n - 1)) (if null s then ['\0'] else s) :: UArray Int Char
-      done = recognise g start chars n
+      (done, furthest) = recognise g start chars n
       table = derivations g chars n done
-   in [(v, t) | Deriv v _ t <- fromMaybe [] (ML.lookup (start, 0, n) table)]
+   in ([(v, t) | Deriv v _ t <- fromMaybe [] (ML.lookup (start, 0, n) table)], furthest)
 
 ------------------------------------------------------------------------
 -- Recognition
@@ -55,8 +62,8 @@ parseAll g start input =
 -- passed their follow restriction.
 type Done = IM.IntMap (Set.Set (Int, Int))
 
-recognise :: Grammar -> NtId -> UArray Int Char -> Int -> Done
-recognise g start chars n = go 0 IM.empty IM.empty [(dotId p 0, 0) | p <- prodsOf start]
+recognise :: Grammar -> NtId -> UArray Int Char -> Int -> (Done, Int)
+recognise g start chars n = go 0 IM.empty IM.empty 0 [(dotId p 0, 0) | p <- prodsOf start]
   where
     prodsOf x = fromMaybe [] (IM.lookup x (gByLeft g))
     numProds = maybe 0 ((+ 1) . fst) (IM.lookupMax (gProds g))
@@ -86,13 +93,14 @@ recognise g start chars n = go 0 IM.empty IM.empty [(dotId p 0, 0) | p <- prodsO
 
     -- waitings: for each earlier position, the items waiting on each
     -- nonterminal; done: the completed items per position
-    go j waitings done seed
-      | j > n = done
+    go j waitings done furthest seed
+      | j > n = (done, furthest)
       | otherwise =
           let st = closure j waitings seed
               done' = IM.insert j (Set.fromList (psDone st)) done
               nextSeed = [(dot + 1, o) | (dot, o) <- psScan st]
-           in go (j + 1) (IM.insert j (psWaiting st) waitings) done' nextSeed
+              furthest' = if IM.null (psSeen st) then furthest else j
+           in go (j + 1) (IM.insert j (psWaiting st) waitings) done' furthest' nextSeed
 
     closure j waitings seed = loop emptyPS seed
       where
@@ -162,15 +170,20 @@ derivations g chars _ done = table
   where
     prod i = gProds g IM.! i
     -- the productions completing each (nonterminal, start, end)
+    -- productions in ascending index order and ends in ascending
+    -- position order: this is the order Ott lists parses in (its GLR
+    -- parser prepends each reduction, and reductions of a span happen
+    -- in that order), which matters when the first parse is taken
     spans :: M.Map (NtId, Int, Int) [Int]
     spans =
-      M.fromListWith (++)
-        [ ((prodLeft (prod p), o, j), [p])
-        | (j, s) <- IM.toList done
-        , (p, o) <- Set.toList s
-        ]
+      M.map reverse $
+        M.fromListWith (++)
+          [ ((prodLeft (prod p), o, j), [p])
+          | (j, s) <- IM.toList done
+          , (p, o) <- Set.toList s
+          ]
     endsFrom :: M.Map (NtId, Int) [Int]
-    endsFrom = M.fromListWith (++) [((x, o), [j]) | ((x, o, j), _) <- M.toList spans]
+    endsFrom = M.map reverse (M.fromListWith (++) [((x, o), [j]) | ((x, o, j), _) <- M.toList spans])
     rejected key = any (prodReject . prod) (fromMaybe [] (M.lookup key spans))
     -- lazily memoised derivations of every completed span
     table = ML.fromList [(key, compute (Set.singleton x) key) | key@(x, _, _) <- M.keys spans]

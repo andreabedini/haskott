@@ -25,10 +25,14 @@ import Haskott.Spec.Check (checkDocument)
 import Haskott.Spec.Show (Class (..), Tok (..), homsText, prodTokens)
 import Haskott.Syntax (parseDocument)
 import Haskott.Defns (processDefns)
-import Haskott.Term.Parse (makeTermParser, parseTerms)
+import Haskott.Term.Parse (ParsePolicy (..), makeTermParser, parseTerms)
 import Haskott.Term.Requests (TermRequest (..), termRequests)
 import Haskott.Term.Symterm (ppPlainSymterm)
-import Data.List (nub, sort)
+import Haskott.Typst (defaultTypstOptions, makeTypst, typstDocument)
+import Control.Exception (IOException, try)
+import qualified Data.Text.Encoding.Error as TEE
+import System.Directory (doesFileExist, getTemporaryDirectory, removeFile)
+import Data.List (isInfixOf, nub, sort)
 import System.Environment (getArgs, lookupEnv)
 import System.Exit (exitFailure)
 import System.FilePath (joinPath, splitDirectories, (</>))
@@ -40,6 +44,7 @@ main = do
   envOtt <- lookupEnv "HASKOTT_OTT"
   envReport <- lookupEnv "HASKOTT_REPORT_OTT"
   let opt flag def = fromMaybe def (lookup flag (pairs args))
+      only = [s | ("--only", s) <- pairs args]
       ottDir = opt "--ott" (fromMaybe "../ott" envOtt)
       reportDir = opt "--report-ott" (fromMaybe "../haskell-report-ott" envReport)
       ott = ottDir </> "bin" </> "ott"
@@ -56,6 +61,7 @@ main = do
         , let (cls, rest) = T.breakOn "\t" line
         , cls /= "parse-error"
         , let path = T.drop 1 rest
+        , null only || any (`isInfixOf` T.unpack path) only
         ]
   results <- forM entries $ \(rel, ottAccepted) -> do
     let file = resolve rel
@@ -80,11 +86,17 @@ main = do
                   Right spec | "AFTER CHECK, DISAMBIGUATE AND SORT" `T.isInfixOf` T.pack sorted -> do
                     termsResult <- compareTerms ott rel file spec
                     case termsResult of
-                      Just failure -> pure (Just failure)
-                      Nothing -> pure (compareAcceptance rel ottAccepted spec)
+                      Left failure -> pure (Just failure)
+                      Right firstDiffers -> case compareAcceptance rel ottAccepted spec of
+                        Just failure -> pure (Just failure)
+                        Nothing
+                          | firstDiffers -> do
+                              putStrLn (rel ++ ": note: an ambiguous term's first parse differs from Ott's; Typst output not compared")
+                              pure Nothing
+                          | otherwise -> compareTypst ott rel file spec
                   _ -> pure Nothing
   let failures = [f | Just f <- results]
-  putStrLn (show (length entries) ++ " files compared with ott -showraw, -show_sort and -parse, " ++ show (length failures) ++ " disagreements")
+  putStrLn (show (length entries) ++ " files compared with ott -showraw, -show_sort, -parse and Typst output, " ++ show (length failures) ++ " disagreements")
   mapM_ putStrLn failures
   unless (null failures) exitFailure
   where
@@ -97,12 +109,42 @@ dropVersionLine t = case T.lines t of
   (first : _) | "Ott version" `T.isPrefixOf` first -> T.drop (T.length first + 1) t
   _ -> t
 
+-- | Compare the Typst output with Ott's, byte for byte. Ott is run on the
+-- same path, so the header naming the sources agrees. When Ott fails to
+-- produce output (it rejects some specifications only at output time),
+-- the file is reported but not counted as a disagreement.
+compareTypst :: FilePath -> FilePath -> FilePath -> Spec -> IO (Maybe String)
+compareTypst ott rel file spec = do
+  tmp <- getTemporaryDirectory
+  let out = tmp </> "haskott-differential.typ"
+  _ <- try (removeFile out) :: IO (Either IOException ())
+  (code, _, err) <- readProcessWithExitCode ott ["-i", file, "-o", out] ""
+  exists <- doesFileExist out
+  if not exists
+    then do
+      putStrLn (rel ++ ": note: ott produced no Typst output (" ++ show code ++ "): " ++ take 200 (lastLine err))
+      pure Nothing
+    else do
+      theirs <- B.readFile out
+      let (env, _, _, processed, _) = makeTypst defaultTypstOptions False spec
+          mine = TE.encodeUtf8 (typstDocument env (T.pack file) processed)
+      if mine == theirs
+        then pure Nothing
+        else do
+          let diffAt = length (takeWhile id (B.zipWith (==) mine theirs))
+              context bs = T.unpack (TE.decodeUtf8With TEE.lenientDecode (B.take 160 (B.drop (max 0 (diffAt - 60)) bs)))
+          pure (Just (rel ++ ": Typst output differs at byte " ++ show diffAt ++ "\n    haskott: " ++ show (context mine) ++ "\n    ott:     " ++ show (context theirs)))
+  where
+    lastLine s = case reverse (filter (not . null) (lines s)) of
+      (l : _) -> l
+      [] -> ""
+
 -- | Ott accepts a file when, after the checks, every rule and clause
 -- parses; haskott must agree, processing the definitions as Ott does
 -- without a picky-parses option.
 compareAcceptance :: FilePath -> Bool -> Spec -> Maybe String
 compareAcceptance rel ottAccepted spec =
-  let (_, diags) = processDefns False (makeTermParser spec) spec
+  let (_, diags) = processDefns (FirstIfSame []) (makeTermParser spec) spec
    in case (ottAccepted, diags) of
         (True, d : _) -> Just (rel ++ ": haskott reports a problem in the definitions of a file Ott accepts: " ++ T.unpack (diagMessage d))
         (False, []) -> Just (rel ++ ": haskott accepts the definitions of a file Ott rejects")
@@ -111,32 +153,43 @@ compareAcceptance rel ottAccepted spec =
 -- | Compare the parses of every term of the specification with Ott's: one
 -- @ott -parse ':root: text'@ per term, in a single process, each printing
 -- all parses in plain form.
-compareTerms :: FilePath -> FilePath -> FilePath -> Spec -> IO (Maybe String)
+-- Returns a disagreement, or whether some ambiguous term's first parse
+-- differs from Ott's: Ott orders parses by OCaml's structural comparison
+-- of its parse-forest nodes, which haskott does not reproduce, so such
+-- files are noted and their Typst output is not compared.
+compareTerms :: FilePath -> FilePath -> FilePath -> Spec -> IO (Either String Bool)
 compareTerms ott rel file spec = do
   let requests = [r | r <- termRequests spec, not (T.null (T.strip (trText r)))]
   if null requests
-    then pure Nothing
+    then pure (Right False)
     else do
       let args = ["-i", file] ++ concat [["-parse", ":" ++ T.unpack (trRoot r) ++ ": " ++ T.unpack (trText r)] | r <- requests]
       (_, out, _) <- readProcessWithExitCode ott args ""
       let blocks = ottParseBlocks (T.pack out)
           tp = makeTermParser spec
-          mine = [nub (sort (map ppPlainSymterm (parseTerms tp (trRoot r) False (trText r)))) | r <- requests]
+          mineOrdered = [map ppPlainSymterm (parseTerms tp (trRoot r) False (trText r)) | r <- requests]
+          mine = map (nub . sort) mineOrdered
           theirs = map (nub . sort) blocks
           problems =
             [ T.unpack (trRoot r) ++ " " ++ show (trText r) ++ "\n    haskott: " ++ showParses a ++ "\n    ott:     " ++ showParses b
             | (r, a, b) <- zip3 requests mine (theirs ++ repeat ["<missing>"])
             , a /= b
             ]
+          -- the first parse is the one taken when a term is ambiguous
+          firstProblems =
+            [ T.unpack (trRoot r) ++ " " ++ show (trText r) ++ " (first of " ++ show (length a) ++ " parses)\n    haskott: " ++ T.unpack a1 ++ "\n    ott:     " ++ T.unpack b1
+            | (r, a1 : a, b1 : _) <- zip3 requests mineOrdered (blocks ++ repeat [])
+            , a1 /= b1
+            ]
       pure $
         if null blocks && "Error" `T.isInfixOf` T.pack out
-          then Nothing -- Ott stopped in its definitions before the test parses
+          then Right False -- Ott stopped in its definitions before the test parses
           else if length blocks /= length requests
-          then Just (rel ++ ": ott printed " ++ show (length blocks) ++ " parse blocks for " ++ show (length requests) ++ " terms")
+          then Left (rel ++ ": ott printed " ++ show (length blocks) ++ " parse blocks for " ++ show (length requests) ++ " terms")
           else
-            if null problems
-              then Nothing
-              else Just (rel ++ ": " ++ show (length problems) ++ " of " ++ show (length requests) ++ " terms differ\n  " ++ unlines' (take 6 problems))
+            if not (null problems)
+              then Left (rel ++ ": " ++ show (length problems) ++ " of " ++ show (length requests) ++ " terms differ\n  " ++ unlines' (take 6 problems))
+              else Right (not (null firstProblems))
   where
     showParses ps = case ps of
       [] -> "no parses"

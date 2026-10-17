@@ -15,13 +15,18 @@ module Haskott.Defns
   , Funclause (..)
   , ProcessedFun (..)
   , ProcessedFunClass (..)
+  , ProcessedItem (..)
   , Processed (..)
+  , processedClasses
+  , processedFunClasses
+  , canonicalElements
   , processDefns
   ) where
 
 import Control.Monad (forM, unless)
 import Control.Monad.Trans.Writer.Strict (Writer, runWriter, tell)
-import Data.Maybe (mapMaybe)
+import Data.List (mapAccumL)
+import Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -45,7 +50,7 @@ data Drule = Drule
 
 data RuleItem
   = ItemRule Drule
-  | ItemComment [EmbedEl]
+  | ItemComment [EmbedEl] TextRange
   deriving (Eq, Show)
 
 data ProcessedDefn = ProcessedDefn
@@ -74,6 +79,10 @@ data Funclause = Funclause
 
 data ProcessedFun = ProcessedFun
   { pfName :: Text
+  , pfForm :: Symterm
+  -- ^ the canonical term of the function's production in its result rule
+  , pfElements :: [Element]
+  , pfHoms :: [Hom]
   , pfClauses :: [Funclause]
   }
   deriving (Eq, Show)
@@ -84,33 +93,62 @@ data ProcessedFunClass = ProcessedFunClass
   }
   deriving (Eq, Show)
 
-data Processed = Processed
-  { processedClasses :: [ProcessedClass]
-  , processedFunClasses :: [ProcessedFunClass]
+data ProcessedItem = PReln ProcessedClass | PFuns ProcessedFunClass
+  deriving (Eq, Show)
+
+-- | The classes in source order.
+newtype Processed = Processed
+  { processedItems :: [ProcessedItem]
   }
   deriving (Eq, Show)
+
+processedClasses :: Processed -> [ProcessedClass]
+processedClasses p = [pc | PReln pc <- processedItems p]
+
+processedFunClasses :: Processed -> [ProcessedFunClass]
+processedFunClasses p = [pfc | PFuns pfc <- processedItems p]
 
 type P = Writer [Diagnostic]
 
 report :: TextRange -> Text -> P ()
 report r m = tell [Diagnostic r m]
 
--- | Process every definition and function class. With @picky@, several
--- parses of a term are an error; otherwise the first is taken, as Ott
--- does when no output target is requested.
-processDefns :: Bool -> TermParser -> Spec -> (Processed, [Diagnostic])
+-- | Process every definition and function class, resolving several
+-- parses of a term by the policy.
+processDefns :: ParsePolicy -> TermParser -> Spec -> (Processed, [Diagnostic])
 processDefns picky tp spec = runWriter $ do
-  classes <- forM (specDefnClasses spec) $ \dc -> do
-    defns <- forM (dcDefns dc) (processDefn picky tp dc)
-    pure (ProcessedClass (dcName dc) (dcWrapper dc) defns)
-  funs <- forM (specFunClasses spec) $ \fc -> do
-    fs <- forM (fcDefns fc) $ \fd -> do
-      clauses <- forM (fdClauses fd) (processClause picky tp fc fd)
-      pure (ProcessedFun (fdName fd) (mapMaybe id clauses))
-    pure (ProcessedFunClass (fcName fc) fs)
-  pure (Processed classes funs)
+  items <- forM (specClasses spec) $ \item -> case item of
+    ClassReln dc -> do
+      defns <- forM (dcDefns dc) (processDefn picky tp dc)
+      pure (PReln (ProcessedClass (dcName dc) (dcWrapper dc) defns))
+    ClassFuns fc -> do
+      fs <- forM (fcDefns fc) $ \fd -> do
+        clauses <- forM (fdClauses fd) (processClause picky tp fc fd)
+        let pn = fdResultPrefix fd <> fdName fd
+            es = case [p | r <- specRules spec, p <- ruleProds r, prodName p == pn] of
+              (p : _) -> prodElements p
+              [] -> fdElements fd
+        pure (ProcessedFun (fdName fd) (StNode (fdResult fd) pn (canonicalElements es)) es (fdHoms fd) (mapMaybe id clauses))
+      pure (PFuns (ProcessedFunClass (fcName fc) fs))
+  pure (renumberFakes (Processed items))
 
-processDefn :: Bool -> TermParser -> DefnClass -> Defn -> P ProcessedDefn
+-- | Ott names the rules of lineless blocks @fake@ followed by a counter
+-- over the whole run, six digits each shifted to a letter.
+renumberFakes :: Processed -> Processed
+renumberFakes (Processed items) = Processed (snd (mapAccumL item (1 :: Int) items))
+  where
+    item n it = case it of
+      PReln pc -> let (n', ds) = mapAccumL defn n (pcDefns pc) in (n', PReln pc {pcDefns = ds})
+      PFuns _ -> (n, it)
+    defn n d = let (n', rs) = mapAccumL rule n (pdRules d) in (n', d {pdRules = rs})
+    rule n r = case r of
+      ItemRule dr | druleName dr == "fake" -> (n + 1, ItemRule dr {druleName = "fake" <> encode n})
+      _ -> (n, r)
+    encode n =
+      let digits = T.justifyRight 6 '0' (T.pack (show n))
+       in T.map (\c -> toEnum (fromEnum c + 49)) digits
+
+processDefn :: ParsePolicy -> TermParser -> DefnClass -> Defn -> P ProcessedDefn
 processDefn picky tp dc d = do
   let prodName' = dcWrapper dc <> dName d
   rules <- forM (dBody d) (processRule picky tp dc d prodName')
@@ -131,9 +169,9 @@ canonicalElements = mapMaybe el
       Nonterm p n suff -> Just (SteSt (StNonterm p (n, suff)))
       Metavar p m suff -> Just (SteMetavar p (m, suff))
       Terminal _ -> Nothing
-      ListForm lb -> Just (SteList [StliListform b (canonicalElements (lbElements lb)) | Just b <- [lbBound lb]])
+      ListForm lb -> Just (SteList [StliListform (fromMaybe (BoundDotform (SiVar "" 0) (SiVar "" 0) 2) (lbBound lb)) (canonicalElements (lbElements lb))])
 
-processRule :: Bool -> TermParser -> DefnClass -> Defn -> Text -> SemirawRule -> P (Maybe RuleItem)
+processRule :: ParsePolicy -> TermParser -> DefnClass -> Defn -> Text -> SemirawRule -> P (Maybe RuleItem)
 processRule picky tp dc d prodName' sr = case sr of
   LinedRule premises _ annot conclusions range -> do
     ps <- forM premises (premise range)
@@ -162,13 +200,14 @@ processRule picky tp dc d prodName' sr = case sr of
         -- a rule with no premises, named fake, in category F
         st <- parseWith userSyntaxTransform "formula" (T.intercalate " " ls) range
         pure . Just . ItemRule $ Drule "fake" (Set.singleton "F") [] st [] range
-  DefnComRule es _ -> pure (Just (ItemComment es))
+  DefnComRule es range -> pure (Just (ItemComment es range))
   where
     parseWith transform root s range = case justOneParse picky transform tp root False s of
       Parsed p -> pure (parseTerm p)
       NoParses -> do
-        report range ("no parses of \"" <> s <> "\"")
-        pure (StUninterpreted ("no parses of " <> s))
+        let errorStr = noParsesErrorString tp root False s
+        report range ("no parses of \"" <> s <> "\":\n" <> errorStr <> "\n")
+        pure (StUninterpreted errorStr)
       MultipleParses ps -> do
         report range ("multiple parses of \"" <> s <> "\":\n" <> T.unlines (map (ppPlainSymterm . parseTerm) ps))
         pure (StUninterpreted "multiple parses")
@@ -221,7 +260,7 @@ embeddingString s =
             let (_, after) = T.breakOn "]]" (T.drop 2 rest)
              in before <> "-ARG-" <> go (T.drop 2 after)
 
-processClause :: Bool -> TermParser -> FunClass -> FunDefn -> Text -> P (Maybe Funclause)
+processClause :: ParsePolicy -> TermParser -> FunClass -> FunDefn -> Text -> P (Maybe Funclause)
 processClause picky tp fc fd s = case mapOutcome parseTerm (justOneParse picky userSyntaxTransform tp (fcName fc) False s) of
   POut (StNode _ _ es) | not (null es) ->
     case (init es, last es) of
@@ -234,7 +273,7 @@ processClause picky tp fc fd s = case mapOutcome parseTerm (justOneParse picky u
     report (fdRange fd) ("function clause \"" <> s <> "\" lost")
     pure Nothing
   NOut -> do
-    report (fdRange fd) ("no parses of \"" <> s <> "\"")
+    report (fdRange fd) ("no parses of \"" <> s <> "\":\n" <> noParsesErrorString tp (fcName fc) False s <> "\n")
     pure Nothing
   MOut sts -> do
     report (fdRange fd) ("multiple parses of \"" <> s <> "\":\n" <> T.unlines (map ppPlainSymterm sts))

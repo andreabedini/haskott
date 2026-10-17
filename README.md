@@ -65,15 +65,29 @@ not about.
   byte for byte. The corpus suite checks that round trip on every file
   that checks. Lines that do not parse stay lines; a term with several
   parses is spliced with the first unless `--picky`.
-- Not yet done: any output.
+- Milestone 6, Typst output: `Haskott.Typst` is the fork's Typst dialect of
+  Ott's TeX back end, from the runtime of defaults through the metavariable
+  and grammar tables, the symbolic terms of rules with Ott's spacing,
+  homs, suffixes, dot forms and comprehensions, the definition and
+  function blocks, the `[[ ]]` document filter and the final counts. On
+  the report (`ott/style.ott` with `expressions.ott` and with
+  `layout.ott`, plus the filtered `report.src.typ`) the output is byte for
+  byte the fork's, and `make OTT=haskott` builds the report's PDFs. The
+  differential also compares the Typst output of every corpus file.
+- Not yet done: TeX output, Ott's remaining checks (bounds consistency at
+  output time among them), prover back ends.
 
-`cabal run haskott -- check FILE...` runs the whole pipeline on files and
-reports every problem with its line and column (`--picky` makes several
-parses of a term an error, as `ott -picky_multiple_parses true`); `dump`
-prints the tree after stage one and `dump --terms` after the term splice,
-`showraw` the raw specification as Ott prints it, `spec` the checked
-specification, and `parse FILE ':root: text'` every parse of a term in
-Ott's plain form.
+haskott takes Ott's command line for the implemented part: `haskott -i
+FILE... -o OUT.typ [-typst_filter SRC DST] [-picky_multiple_parses BOOL]
+[-tex_name_prefix P] [-tex_show_meta BOOL] [-tex_show_categories BOOL]
+[-tex_colour BOOL] [-tex_wrap BOOL] [-tex_suppress_category C]
+[-tex_suppress_ntr N]`. The development subcommands look at one stage
+each: `cabal run haskott -- check FILE...` runs the whole pipeline on
+files and reports every problem with its line and column (`--picky` makes
+several parses of a term an error); `dump` prints the tree after stage one
+and `dump --terms` after the term splice, `showraw` the raw specification
+as Ott prints it, `spec` the checked specification, and `parse FILE
+':root: text'` every parse of a term in Ott's plain form.
 
 ## Building and testing
 
