@@ -15,7 +15,7 @@ module Haskott.Term.Requests
 import Data.Char (isAlpha, isAlphaNum)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Graft.Range (TextRange)
+import Graft
 import Haskott.Spec
 
 data Role = Premise | Conclusion | Formula | Quotation | Clause

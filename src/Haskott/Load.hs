@@ -19,8 +19,9 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Graft.Green (GreenElement (..), GreenNode, greenNode, greenToken, nodeChildren, nodeKind)
-import Graft.Range (TextRange, rangeEnd, rangeStart, textRange)
+import Graft
+import qualified Graft.Green as Green
+import qualified Graft.Range as Range
 import Haskott.Raw (rawDocument)
 import Haskott.Spec (Diagnostic (..), Spec)
 import Haskott.Spec.Check (checkDocument, checkDocumentRecovering)
@@ -85,13 +86,13 @@ lineRange :: Text -> Int -> TextRange
 lineRange src off =
   let bytes = TE.encodeUtf8 src
       lineEnd = maybe (B.length bytes) (+ off) (B.elemIndex 10 (B.drop off bytes))
-   in fromMaybe (error "lineRange") (textRange (fromIntegral off) (fromIntegral (max off lineEnd)))
+   in fromMaybe (error "lineRange") (Range.fromEnds (fromIntegral off) (fromIntegral (max off lineEnd)))
 
 -- | The file a diagnostic of the concatenation belongs to, and the
 -- diagnostic with its range in that file.
 locateDiagnostic :: [Source] -> Diagnostic -> (FilePath, Text, Diagnostic)
 locateDiagnostic sources d =
-  let off = fromIntegral (rangeStart (diagRange d))
+  let off = fromIntegral (Range.start (diagRange d))
    in case [s | s <- sources, srcBase s <= off] of
         [] -> case sources of
           (s : _) -> (srcPath s, srcText s, d)
@@ -105,7 +106,7 @@ locateDiagnostic sources d =
 shiftTree :: Int -> GreenNode Kind -> GreenNode Kind
 shiftTree base tree
   | base == 0 = tree
-  | otherwise = greenNode (nodeKind tree) (Token (greenToken Space (T.replicate base (T.singleton ' '))) : nodeChildren tree)
+  | otherwise = Green.node (Green.nodeKind tree) (Token (Green.token Space (T.replicate base (T.singleton ' '))) : Green.children tree)
 
 shiftRange :: Int -> TextRange -> TextRange
-shiftRange n r = fromMaybe r (textRange (rangeStart r + fromIntegral n) (rangeEnd r + fromIntegral n))
+shiftRange n r = fromMaybe r (Range.fromEnds (Range.start r + fromIntegral n) (Range.end r + fromIntegral n))

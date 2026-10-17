@@ -15,7 +15,7 @@ module Haskott.Diagnostics
   ) where
 
 import Data.Text (Text)
-import Graft.Green (renderNode)
+import qualified Graft.Green as Green
 import Haskott.Defns (processDefns)
 import Haskott.Load
 import Haskott.Spec (Diagnostic (..), Spec)
@@ -57,7 +57,7 @@ diagnose picky files =
               let tp0 = makeTermParser spec
                   step (t, ws, rt) s =
                     let (tree', tp', ws') = spliceTerms policy t (srcTree s)
-                     in (tp', ws ++ [(s, w) | w <- ws'], rt && renderNode tree' == srcText s)
+                     in (tp', ws ++ [(s, w) | w <- ws'], rt && Green.renderNode tree' == srcText s)
                   (tp, warnings, ok) = foldl step (tp0, [], True) (ckSources checked)
                   (_, diags) = processDefns policy tp spec
                   located = [Problem f src Error d' | d <- diags, let (f, src, d') = locateDiagnostic (ckSources checked) d]

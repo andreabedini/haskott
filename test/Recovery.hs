@@ -19,9 +19,9 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
-import Graft.Cursor
-import Graft.Green
-import Graft.Range (rangeEnd)
+import Graft
+import qualified Graft.Cursor as Cursor
+import qualified Graft.Range as Range
 import Haskott.Syntax
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
@@ -65,10 +65,10 @@ checkFile rel src =
 -- | The offsets just after the bar of each production.
 barOffsets :: GreenNode Kind -> [Int]
 barOffsets t =
-  [ fromIntegral (rangeEnd (cursorRange b))
-  | c <- cursorDescendants (rootCursor (Node t))
-  , cursorKind c == Prod
-  , b <- take 1 [x | x <- cursorChildren c, cursorKind x == Bar]
+  [ fromIntegral (Range.end (Cursor.range b))
+  | c <- Cursor.descendants (Cursor.fromGreen (Node t))
+  , Cursor.kind c == Prod
+  , b <- take 1 [x | x <- Cursor.children c, Cursor.kind x == Bar]
   ]
 
 -- | The productions from this one to the end of its line.
@@ -92,7 +92,7 @@ mutate rel src t off lost =
 counts :: GreenNode Kind -> M.Map Kind Int
 counts t =
   M.fromListWith (+)
-    [ (cursorKind c, 1)
-    | c <- cursorDescendants (rootCursor (Node t))
-    , cursorKind c `elem` [Prod, Rule, ErrorItem, MetavarDecl, GrammarSection, Defns, Defn, DRule, Funs, Fundefn, Subrule, Substitution, Embed, HomsItem]
+    [ (Cursor.kind c, 1)
+    | c <- Cursor.descendants (Cursor.fromGreen (Node t))
+    , Cursor.kind c `elem` [Prod, Rule, ErrorItem, MetavarDecl, GrammarSection, Defns, Defn, DRule, Funs, Fundefn, Subrule, Substitution, Embed, HomsItem]
     ]

@@ -15,7 +15,7 @@ import Data.List (isSuffixOf)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
-import Graft.Range (rangeStart)
+import qualified Graft.Range as Range
 import Haskott.Defns (processDefns)
 import Haskott.Diagnostics
 import Haskott.Load
@@ -250,7 +250,7 @@ checkFile picky file = do
 
 reportDiagnostic :: FilePath -> T.Text -> Diagnostic -> IO ()
 reportDiagnostic file src d =
-  let (l, c) = offsetPosition src (fromIntegral (rangeStart (diagRange d)))
+  let (l, c) = offsetPosition src (fromIntegral (Range.start (diagRange d)))
    in hPutStrLn stderr (file ++ ":" ++ show l ++ ":" ++ show c ++ ": " ++ T.unpack (diagMessage d))
 
 reportError :: FilePath -> T.Text -> ParseError -> IO ()

@@ -30,7 +30,8 @@ import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMayb
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
-import Graft.Range (TextRange, rangeEnd, rangeStart)
+import Graft
+import qualified Graft.Range as Range
 import qualified Haskott.Raw as R
 import Haskott.Spec
 
@@ -88,7 +89,7 @@ checkDocumentRecovering doc = case runCheck (checkDocument' doc) [] of
     go seen (d : more)
       | key d `Set.member` seen = go seen more
       | otherwise = d : go (Set.insert (key d) seen) more
-    key d = (rangeStart (diagRange d), rangeEnd (diagRange d), diagMessage d)
+    key d = (Range.start (diagRange d), Range.end (diagRange d), diagMessage d)
 
 quote :: Text -> Text
 quote s = "\"" <> s <> "\""

@@ -23,22 +23,23 @@ module Haskott.Syntax
 
 import Data.Text (Text)
 import qualified Data.Text as T
-import Graft.Green (GreenElement (..), GreenNode, nodeChildren, nodeKind, renderNode, tokenKind, tokenText)
+import Graft
+import qualified Graft.Green as Green
 import Haskott.Syntax.Kind
 import Haskott.Syntax.Parser
 
 -- | The source text of a tree: the concatenation of its tokens.
 render :: GreenNode Kind -> Text
-render = renderNode
+render = Green.renderNode
 
 -- | A readable listing of a tree, one element per line, indented by depth.
 dumpTree :: GreenNode Kind -> Text
 dumpTree = T.unlines . go 0
   where
     go d n =
-      (indent d <> T.pack (show (nodeKind n)))
-        : concatMap (element (d + 1)) (nodeChildren n)
+      (indent d <> T.pack (show (Green.nodeKind n)))
+        : concatMap (element (d + 1)) (Green.children n)
     element d e = case e of
       Node n -> go d n
-      Token t -> [indent d <> T.pack (show (tokenKind t)) <> " " <> T.pack (show (tokenText t))]
+      Token t -> [indent d <> T.pack (show (Green.tokenKind t)) <> " " <> T.pack (show (Green.text t))]
     indent d = T.replicate d "  "

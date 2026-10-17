@@ -15,7 +15,8 @@ import Data.Array (Array, listArray, (!))
 import qualified Data.IntMap.Strict as IM
 import Data.Text (Text)
 import qualified Data.Text as T
-import Graft.Green
+import Graft
+import qualified Graft.Green as Green
 import Haskott.Syntax.Kind (Kind (..))
 import Haskott.Term.Earley (DTree (..))
 import Haskott.Term.Grammar
@@ -32,7 +33,7 @@ termElements g input = build
     tagOf = prodTag . prod
     isSpace t = tagOf (dtProd t) == TagLeaf Space
 
-    token k a b = [Token (greenToken k (slice a b)) | b > a]
+    token k a b = [Token (Green.token k (slice a b)) | b > a]
 
     build :: DTree -> [GreenElement Kind]
     build t@(DTree p a b kids) = case tagOf p of
@@ -57,7 +58,7 @@ termElements g input = build
             (c : cs) -> literal runStart pos ++ build c ++ go more cs (dtEnd c) (dtEnd c)
             [] -> literal runStart pos
         literal a' b'
-          | b' > a' = let s = slice a' b' in [Token (greenToken (kindFor s) s)]
+          | b' > a' = let s = slice a' b' in [Token (Green.token (kindFor s) s)]
           | otherwise = []
         kindFor s = case k of
           TListForm -> case T.unpack s of
@@ -71,5 +72,5 @@ termElements g input = build
     -- a node around the elements, with a leading space left outside
     wrap :: Kind -> [GreenElement Kind] -> [GreenElement Kind]
     wrap k els = case els of
-      (Token t : rest) | tokenKind t == Space -> Token t : [Node (greenNode k rest)]
-      _ -> [Node (greenNode k els)]
+      (Token t : rest) | Green.tokenKind t == Space -> Token t : [Node (Green.node k rest)]
+      _ -> [Node (Green.node k els)]

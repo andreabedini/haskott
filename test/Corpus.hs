@@ -22,7 +22,7 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
-import Graft.Range (rangeStart)
+import qualified Graft.Range as Range
 import Haskott.Defns (processDefns)
 import Haskott.Raw (rawDocument)
 import Haskott.Spec (Diagnostic (..))
@@ -116,7 +116,7 @@ firstProblem src = case parseDocument src of
             (l : _) -> l
             [] -> ": ok"
   where
-    diag d = at (fromIntegral (rangeStart (diagRange d))) (diagMessage d)
+    diag d = at (fromIntegral (Range.start (diagRange d))) (diagMessage d)
     at off m =
       let (l, c) = parseErrorPosition src (ParseError off T.empty)
        in T.pack (":" ++ show l ++ ":" ++ show c ++ ": ") <> T.takeWhile (/= '\n') m

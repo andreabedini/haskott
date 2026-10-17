@@ -39,7 +39,7 @@ module Haskott.Spec
 
 import Data.Set (Set)
 import Data.Text (Text)
-import Graft.Range (TextRange)
+import Graft
 import Haskott.Raw (EmbedEl (..), RuleAnnot (..), SemirawRule (..))
 import Haskott.Spec.Suffix
 

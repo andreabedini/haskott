@@ -30,7 +30,7 @@ import Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
-import Graft.Range (TextRange)
+import Graft
 import qualified Haskott.Raw as R
 import Haskott.Spec
 import Haskott.Term.Parse

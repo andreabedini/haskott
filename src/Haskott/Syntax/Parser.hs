@@ -31,16 +31,8 @@ import Data.List (find)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Foreign as TF
-import Graft.Green
-  ( GreenElement (..)
-  , GreenNode
-  , elementKind
-  , elementTextLength
-  , greenNode
-  , greenToken
-  , nodeChildren
-  , nodeKind
-  )
+import Graft
+import qualified Graft.Green as Green
 import Haskott.Syntax.Kind
 
 type Elem = GreenElement Kind
@@ -75,7 +67,7 @@ parseDocument src = fst <$> unP pDocument (S src 0 0 False [])
 parseDocumentRecovering :: Text -> (GreenNode Kind, [ParseError])
 parseDocumentRecovering src = case unP pDocument (S src 0 0 True []) of
   Right (tree, s) -> (tree, reverse (sErrors s))
-  Left e -> (greenNode Document [Node (greenNode ErrorItem [Token (greenToken Garbage src) | not (T.null src)])], [e])
+  Left e -> (Green.node Document [Node (Green.node ErrorItem [Token (Green.token Garbage src) | not (T.null src)])], [e])
 
 ------------------------------------------------------------------------
 -- The parser monad
@@ -140,16 +132,16 @@ take' t = do
 tokenOf :: Kind -> Text -> P Elem
 tokenOf k t = do
   take' t
-  pure (Token (greenToken k t))
+  pure (Token (Green.token k t))
 
 node :: Kind -> [Elem] -> Elem
-node k = Node . greenNode k
+node k = Node . Green.node k
 
 -- | A node that spans from its first syntax token: leading trivia stays
 -- outside, in front of it.
 tight :: Kind -> [Elem] -> [Elem]
 tight k es =
-  let (lead, body) = span (isTrivia . elementKind) es
+  let (lead, body) = span (isTrivia . Green.kind) es
    in lead ++ [node k body]
 
 -- | Run a parser on the current line only, up to but excluding its
@@ -357,7 +349,7 @@ recovering sync step col indent = P $ \s -> case unP (step col indent) s of
   where
     recovered skipped = do
       g <- tokenOf Garbage skipped
-      pure (Just (greenNode ErrorItem (indent ++ [g]), []))
+      pure (Just (Green.node ErrorItem (indent ++ [g]), []))
 
 -- | The text from here to the end of the line before the first later line
 -- the predicate accepts, or to the end of the input.
@@ -419,7 +411,7 @@ itemLoop tm pending0 step = go Nothing [] pending0
 -- | The whitespace directly in front of an item is the item's.
 splitIndent :: [Elem] -> ([Elem], [Elem])
 splitIndent es = case reverse es of
-  (e : rs) | elementKind e == Space -> (reverse rs, [e])
+  (e : rs) | Green.kind e == Space -> (reverse rs, [e])
   _ -> (es, [])
 
 -- | The column of an item that starts its line, measured as the width of
@@ -427,14 +419,14 @@ splitIndent es = case reverse es of
 itemColumn :: [Elem] -> P (Maybe Int)
 itemColumn indent = do
   s <- getS
-  let w = fromIntegral (sum (map elementTextLength indent))
+  let w = fromIntegral (sum (map Green.length indent))
   pure (if sOff s - w == sLineStart s then Just w else Nothing)
 
 -- | Take a node's trailing trivia children off it.
 peel :: GreenNode Kind -> (GreenNode Kind, [Elem])
 peel n =
-  let (trailingRev, bodyRev) = span (isTrivia . elementKind) (reverse (nodeChildren n))
-   in (greenNode (nodeKind n) (reverse bodyRev), reverse trailingRev)
+  let (trailingRev, bodyRev) = span (isTrivia . Green.kind) (reverse (Green.children n))
+   in (Green.node (Green.nodeKind n) (reverse bodyRev), reverse trailingRev)
 
 -- | Give an item the trivia that is its own: everything to the end of its
 -- last line, and (Rule 2) the comment lines after it that are indented past
@@ -442,10 +434,10 @@ peel n =
 -- the parent.
 attach :: Maybe Int -> GreenNode Kind -> [Elem] -> (GreenNode Kind, [Elem])
 attach mcol n triv =
-  let (sameLine, afterNl) = span ((/= Newline) . elementKind) triv
+  let (sameLine, afterNl) = span ((/= Newline) . Green.kind) triv
       claimed = maybe [] (`rule2` afterNl) mcol
       keep = sameLine ++ claimed
-   in (greenNode (nodeKind n) (nodeChildren n ++ keep), drop (length keep) triv)
+   in (Green.node (Green.nodeKind n) (Green.children n ++ keep), drop (length keep) triv)
 
 -- | The longest prefix of lines consisting of comment lines indented past
 -- the column and blank lines, ending with a comment line. Each line here
@@ -462,22 +454,22 @@ rule2 col es = concat (take best ls)
       Nothing -> acc
     -- Just True: a comment line indented past the column; Just False: a
     -- blank line; Nothing: anything else.
-    classify l = case map elementKind (drop 1 l) of
+    classify l = case map Green.kind (drop 1 l) of
       [] -> Just False
       [Space] -> Just False
       [LineComment] -> Nothing
       [Space, LineComment] ->
-        if fromIntegral (elementTextLength (l !! 1)) > col then Just True else Nothing
+        if fromIntegral (Green.length (l !! 1)) > col then Just True else Nothing
       _ -> Nothing
     linesOf [] = []
     linesOf (e : more) =
-      let (l, after) = span ((/= Newline) . elementKind) more
+      let (l, after) = span ((/= Newline) . Green.kind) more
        in (e : l) : linesOf after
 
 -- | Separate the trailing trivia from a list of elements.
 splitTrailing :: [Elem] -> ([Elem], [Elem])
 splitTrailing es =
-  let (tRev, bRev) = span (isTrivia . elementKind) (reverse es)
+  let (tRev, bRev) = span (isTrivia . Green.kind) (reverse es)
    in (reverse bRev, reverse tRev)
 
 ------------------------------------------------------------------------
@@ -486,7 +478,7 @@ splitTrailing es =
 pDocument :: P (GreenNode Kind)
 pDocument = do
   (children, leftover) <- itemLoop metaTrivia [] (recovering itemLine step)
-  pure (greenNode Document (children ++ leftover))
+  pure (Green.node Document (children ++ leftover))
   where
     step _ indent = do
       t <- mPeek
@@ -516,12 +508,12 @@ pItem k indent = case k of
   where
     simple kind body = do
       es <- body
-      pure (greenNode kind (indent ++ es), [])
+      pure (Green.node kind (indent ++ es), [])
     kwIdent w = (++) <$> mKw w <*> mIdent "a name"
     section kind step = do
       kw <- mKw k
       (children, leftover) <- itemLoop metaTrivia [] (recovering (syncFor kind) step)
-      pure (greenNode kind (indent ++ kw ++ children), leftover)
+      pure (Green.node kind (indent ++ kw ++ children), leftover)
     syncFor kind = case kind of
       GrammarSection -> ruleLine
       EmbedSection -> embedLine
@@ -530,7 +522,7 @@ pItem k indent = case k of
       header <- (++) <$> mKw "homs" <*> mIdent "a production-name prefix"
       let (header', pending) = splitTrailing header
       (children, leftover) <- itemLoop metaTrivia pending (recovering homsItemLine homsItemStep)
-      pure (greenNode HomsSection (indent ++ header' ++ children), leftover)
+      pure (Green.node HomsSection (indent ++ header' ++ children), leftover)
 
 -- | End of a section: an item keyword or the end of the file.
 endsSection :: MTok -> Bool
@@ -803,7 +795,7 @@ pRule indent = do
   homs <- pHoms
   let (header, pending) = splitTrailing (names ++ cc ++ prefix ++ cce ++ homs)
   (prods, leftover) <- itemLoop metaTrivia pending (recovering prodLine prodStep)
-  pure (greenNode Rule (indent ++ header ++ prods), leftover)
+  pure (Green.node Rule (indent ++ header ++ prods), leftover)
 
 prodStep :: Step
 prodStep _ indent = do
@@ -823,7 +815,7 @@ pProd indent = do
   name <- mIdent "a production name"
   bs <- pBindspecGroups
   homs <- pHoms
-  pure (greenNode Prod (indent ++ bar ++ els ++ cats ++ name ++ bs ++ homs), [])
+  pure (Green.node Prod (indent ++ bar ++ els ++ cats ++ name ++ bs ++ homs), [])
 
 -- | Elements in @elements@ mode up to and including the @::@ that switches
 -- the lexer back.
@@ -1170,7 +1162,7 @@ embedStep _ indent = do
     embed star = do
       (_, open) <- lexMeta
       body <- homBody star EmbedBody
-      pure (greenNode Embed (indent ++ open ++ body), [])
+      pure (Green.node Embed (indent ++ open ++ body), [])
 
 ------------------------------------------------------------------------
 -- Subrules, context rules, substitutions, free variables (GRAMMAR.md §3.8)
@@ -1212,7 +1204,7 @@ substitutionStep _ indent = do
       cc <- mSym "::"
       name <- mIdent "a function name"
       homs <- pHoms
-      pure (Just (greenNode Substitution (indent ++ kw ++ this ++ that ++ cc ++ name ++ homs), []))
+      pure (Just (Green.node Substitution (indent ++ kw ++ this ++ that ++ cc ++ name ++ homs), []))
     _
       | endsSection t -> pure Nothing
       | otherwise -> failHere "expected single or multiple"
@@ -1224,7 +1216,7 @@ declStep kind what body _ indent = do
   case t of
     MIdent -> do
       es <- body
-      pure (Just (greenNode kind (indent ++ es), []))
+      pure (Just (Green.node kind (indent ++ es), []))
     _
       | endsSection t -> pure Nothing
       | otherwise -> failHere ("expected " <> what)
@@ -1250,7 +1242,7 @@ homsItemStep _ indent = do
       name <- mIdent "a production name"
       bs <- pBindspecGroups
       homs <- pHoms
-      pure (Just (greenNode HomsItem (indent ++ cc ++ name ++ bs ++ homs), []))
+      pure (Just (Green.node HomsItem (indent ++ cc ++ name ++ bs ++ homs), []))
     _
       | endsSection t -> pure Nothing
       | otherwise -> failHere "expected :: in a homs section"
@@ -1268,7 +1260,7 @@ pDefns indent = do
   homs <- pHoms
   let (header, pending) = splitTrailing (kw ++ name ++ cc ++ prefix ++ cce ++ homs)
   (defns, leftover) <- itemLoop metaTrivia pending (recovering defnLine defnStep)
-  pure (greenNode Defns (indent ++ header ++ defns), leftover)
+  pure (Green.node Defns (indent ++ header ++ defns), leftover)
 
 defnStep :: Step
 defnStep _ indent = do
@@ -1290,7 +1282,7 @@ pDefn indent = do
   homs <- pHoms
   by <- mKw "by"
   (body, leftover) <- defnBody
-  pure (greenNode Defn (indent ++ kw ++ form ++ cats ++ name ++ cc ++ prefix ++ homs ++ by ++ body), leftover)
+  pure (Green.node Defn (indent ++ kw ++ form ++ cats ++ name ++ cc ++ prefix ++ homs ++ by ++ body), leftover)
 
 -- | One line of a rule body (GRAMMAR.md §2.9), with its tokens.
 data LineUnit
@@ -1367,7 +1359,7 @@ lineUnit = do
       case kw of
         Just k -> do
           -- not consumed; the caller decides
-          pure (LUText [] (Token (greenToken Line body)) (Just k))
+          pure (LUText [] (Token (Green.token Line body)) (Just k))
         Nothing -> do
           i <- indentTok
           l <- tokenOf Line body
@@ -1478,7 +1470,7 @@ pBlock = collect [] Nothing [] Nothing
       Just _ -> collect before mstart (items ++ es) dashes
     startCol mstart i = case mstart of
       Just c -> Just c
-      Nothing -> Just (fromIntegral (sum (map elementTextLength i)))
+      Nothing -> Just (fromIntegral (sum (map Green.length i)))
     newlineAfter = do
       r <- rest
       if not (T.null r) && isNl (T.head r) then (: []) <$> newlineToken r else pure []
@@ -1487,11 +1479,11 @@ pBlock = collect [] Nothing [] Nothing
       Just col ->
         let (body, trailing) = splitTrailing items
             n = case dashes of
-              Just _ -> greenNode DRule body
-              Nothing -> greenNode Lineless (map toFormula body)
+              Just _ -> Green.node DRule body
+              Nothing -> Green.node Lineless (map toFormula body)
          in pure (Right (before, n, Just col, trailing))
     toFormula e = case e of
-      Node n | nodeKind n == Premise -> node Formula (nodeChildren n)
+      Node n | Green.nodeKind n == Premise -> node Formula (Green.children n)
       _ -> e
 
 ------------------------------------------------------------------------
@@ -1505,7 +1497,7 @@ pFuns indent = do
   homs <- pHoms
   let (header, pending) = splitTrailing (kw ++ name ++ cce ++ homs)
   (funs, leftover) <- itemLoop metaTrivia pending (recovering funLine funStep)
-  pure (greenNode Funs (indent ++ header ++ funs), leftover)
+  pure (Green.node Funs (indent ++ header ++ funs), leftover)
 
 funStep :: Step
 funStep _ indent = do
@@ -1526,7 +1518,7 @@ pFundefn indent = do
   homs <- pHoms
   by <- mKw "by"
   (body, leftover) <- funBody
-  pure (greenNode Fundefn (indent ++ kw ++ form ++ result ++ cc ++ name ++ homs ++ by ++ body), leftover)
+  pure (Green.node Fundefn (indent ++ kw ++ form ++ result ++ cc ++ name ++ homs ++ by ++ body), leftover)
 
 -- | After @by@: a blank line, then clauses, comments and blank lines until a
 -- keyword line.
@@ -1552,8 +1544,8 @@ funBody = do
           r <- rest
           nl <- if not (T.null r) && isNl (T.head r) then (: []) <$> newlineToken r else pure []
           let (acc', pending') = flush prev acc pending
-              col = Just (fromIntegral (sum (map elementTextLength i)))
-          go (Just (greenNode Clause (i ++ [l]), col)) (acc' ++ pending') nl
+              col = Just (fromIntegral (sum (map Green.length i)))
+          go (Just (Green.node Clause (i ++ [l]), col)) (acc' ++ pending') nl
     flush prev acc pending = case prev of
       Nothing -> (acc, pending)
       Just (n, col) ->

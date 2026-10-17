@@ -153,9 +153,10 @@ module Haskott.Syntax.Ast
 import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Graft.Ast
-import Graft.Cursor
-import Graft.Green (GreenElement (..), GreenNode, renderElement, tokenText)
+import Graft
+import qualified Graft.Ast as Ast
+import qualified Graft.Cursor as Cursor
+import qualified Graft.Green as Green
 import Haskott.Syntax.Kind (Kind)
 import qualified Haskott.Syntax.Kind as K
 
@@ -163,7 +164,7 @@ type C = Cursor Kind
 
 -- | A cursor on the root of a parsed document.
 documentCursor :: GreenNode Kind -> C
-documentCursor = rootCursor . Node
+documentCursor = Cursor.fromGreen . Node
 
 -- | The dequoted value of a @maybe_quoted_ident@ or an element (GRAMMAR.md
 -- §2.2): @'t_'@ is @t_@, @''@ is empty, anything else is itself.
@@ -174,15 +175,15 @@ identValue s
 
 -- | The text of a token cursor, or empty for a node.
 tokenValue :: C -> Text
-tokenValue c = case cursorGreen c of
-  Token t -> tokenText t
+tokenValue c = case Cursor.green c of
+  Token t -> Green.text t
   Node _ -> ""
 
 kindIs :: Kind -> C -> Bool
-kindIs k c = cursorKind c == k
+kindIs k c = Cursor.kind c == k
 
 children :: C -> [C]
-children = cursorChildren
+children = Cursor.children
 
 nodes :: Kind -> C -> [C]
 nodes k = filter (kindIs k) . children
@@ -214,7 +215,7 @@ identsIn :: [C] -> [Text]
 identsIn = map (identValue . tokenValue) . filter (kindIs K.Ident)
 
 view :: Kind -> (C -> a) -> C -> Maybe a
-view k = matchNode (== k)
+view k = Ast.matchNode (== k)
 
 ------------------------------------------------------------------------
 -- Items
@@ -242,7 +243,7 @@ data Item
   | ItemCoqVariable CoqVariable
 
 castItem :: C -> Maybe Item
-castItem c = case cursorKind c of
+castItem c = case Cursor.kind c of
   K.MetavarDecl -> Just (ItemMetavar (MetavarDecl c))
   K.GrammarSection -> Just (ItemGrammar (GrammarSection c))
   K.SubrulesSection -> Just (ItemSubrules (SubrulesSection c))
@@ -276,11 +277,11 @@ metavarKeyword :: MetavarDecl -> Text
 metavarKeyword (MetavarDecl c) = keywordText c
 
 metavarNames :: MetavarDecl -> [Name]
-metavarNames (MetavarDecl c) = astChildren c
+metavarNames (MetavarDecl c) = Ast.children c
 
 -- | The homs after @::=@ (those of the names are in the names).
 metavarHoms :: MetavarDecl -> [Hom]
-metavarHoms (MetavarDecl c) = astChildren c
+metavarHoms (MetavarDecl c) = Ast.children c
 
 newtype Name = Name C
 
@@ -293,7 +294,7 @@ nameIdent :: Name -> Text
 nameIdent (Name c) = maybe "" id (listToMaybe (idents c))
 
 nameHoms :: Name -> [Hom]
-nameHoms (Name c) = astChildren c
+nameHoms (Name c) = Ast.children c
 
 newtype GrammarSection = GrammarSection C
 
@@ -303,7 +304,7 @@ instance AstNode GrammarSection where
   nodeSyntax (GrammarSection c) = c
 
 grammarRules :: GrammarSection -> [Rule]
-grammarRules (GrammarSection c) = astChildren c
+grammarRules (GrammarSection c) = Ast.children c
 
 newtype Rule = Rule C
 
@@ -313,17 +314,17 @@ instance AstNode Rule where
   nodeSyntax (Rule c) = c
 
 ruleNames :: Rule -> [Name]
-ruleNames (Rule c) = astChildren c
+ruleNames (Rule c) = Ast.children c
 
 -- | The production-name prefix, dequoted.
 rulePrefix :: Rule -> Text
 rulePrefix (Rule c) = maybe "" id (listToMaybe (idents c))
 
 ruleHoms :: Rule -> [Hom]
-ruleHoms (Rule c) = astChildren c
+ruleHoms (Rule c) = Ast.children c
 
 ruleProds :: Rule -> [Prod]
-ruleProds (Rule c) = astChildren c
+ruleProds (Rule c) = Ast.children c
 
 newtype Prod = Prod C
 
@@ -343,7 +344,7 @@ data Elem
 elementsOf :: [C] -> [Elem]
 elementsOf = mapMaybe element
   where
-    element c = case cursorKind c of
+    element c = case Cursor.kind c of
       K.Element -> Just (ElemString (identValue (tokenValue c)) False)
       K.QuotedElement -> Just (ElemString (identValue (tokenValue c)) True)
       K.Dots -> Just (ElemDots (T.length (tokenValue c) - 2))
@@ -360,10 +361,10 @@ prodName :: Prod -> Text
 prodName (Prod c) = maybe "" id (listToMaybe (identsIn (segment 2 c)))
 
 prodBindspecs :: Prod -> [Bindspecs]
-prodBindspecs (Prod c) = astChildren c
+prodBindspecs (Prod c) = Ast.children c
 
 prodHoms :: Prod -> [Hom]
-prodHoms (Prod c) = astChildren c
+prodHoms (Prod c) = Ast.children c
 
 newtype Comp = Comp C
 
@@ -391,7 +392,7 @@ compIndex (Comp c) = case compSegments c of
   _ -> Nothing
 
 compBound :: Comp -> Maybe CompBound
-compBound (Comp c) = astChild c
+compBound (Comp c) = Ast.child c
 
 newtype CompBound = CompBound C
 
@@ -406,7 +407,7 @@ boundTokens :: CompBound -> [(Kind, Text)]
 boundTokens (CompBound c) =
   [ (k, if k == K.Ident || k == K.Element then identValue (tokenValue t) else tokenValue t)
   | t <- children c
-  , let k = cursorKind t
+  , let k = Cursor.kind t
   , not (K.isTrivia k)
   ]
 
@@ -418,7 +419,7 @@ instance AstNode Bindspecs where
   nodeSyntax (Bindspecs c) = c
 
 bindspecsOf :: Bindspecs -> [Bindspec]
-bindspecsOf (Bindspecs c) = astChildren c
+bindspecsOf (Bindspecs c) = Ast.children c
 
 newtype Bindspec = Bindspec C
 
@@ -434,8 +435,8 @@ bindspecTokens (Bindspec c) = mapMaybe part (children c)
   where
     part t
       | kindIs K.Mse t = Just (Right (Mse t))
-      | K.isTrivia (cursorKind t) = Nothing
-      | otherwise = Just (Left (cursorKind t, identValue (tokenValue t)))
+      | K.isTrivia (Cursor.kind t) = Nothing
+      | otherwise = Just (Left (Cursor.kind t, identValue (tokenValue t)))
 
 newtype Mse = Mse C
 
@@ -452,7 +453,7 @@ data MsePart
 mseParts :: Mse -> [MsePart]
 mseParts (Mse c) = mapMaybe part (children c)
   where
-    part t = case cursorKind t of
+    part t = case Cursor.kind t of
       K.Mse -> Just (MseSub (Mse t))
       K.CompBound -> Just (MseBound (CompBound t))
       k
@@ -477,7 +478,7 @@ data HomPart
 bodyParts :: [C] -> [HomPart]
 bodyParts = mapMaybe part
   where
-    part t = case cursorKind t of
+    part t = case Cursor.kind t of
       K.HomText -> Just (PartText (tokenValue t))
       K.Space -> Just (PartBlanks (tokenValue t))
       K.Newline -> Just (PartBlanks (tokenValue t))
@@ -521,7 +522,7 @@ data RefPart
 homRefParts :: HomRef -> [RefPart]
 homRefParts (HomRef c) = mapMaybe part (children c)
   where
-    part t = case cursorKind t of
+    part t = case Cursor.kind t of
       K.HomText -> Just (RefText (tokenValue t))
       K.Element -> Just (RefText (tokenValue t))
       K.Space -> Just (RefBlanks (tokenValue t))
@@ -554,7 +555,7 @@ instance AstNode SubrulesSection where
   nodeSyntax (SubrulesSection c) = c
 
 subrulesOf :: SubrulesSection -> [Subrule]
-subrulesOf (SubrulesSection c) = astChildren c
+subrulesOf (SubrulesSection c) = Ast.children c
 
 newtype Subrule = Subrule C
 
@@ -568,7 +569,7 @@ subruleIdents :: Subrule -> [Text]
 subruleIdents (Subrule c) = idents c
 
 subruleHoms :: Subrule -> [Hom]
-subruleHoms (Subrule c) = astChildren c
+subruleHoms (Subrule c) = Ast.children c
 
 newtype ContextrulesSection = ContextrulesSection C
 
@@ -578,7 +579,7 @@ instance AstNode ContextrulesSection where
   nodeSyntax (ContextrulesSection c) = c
 
 contextrulesOf :: ContextrulesSection -> [Contextrule]
-contextrulesOf (ContextrulesSection c) = astChildren c
+contextrulesOf (ContextrulesSection c) = Ast.children c
 
 newtype Contextrule = Contextrule C
 
@@ -599,7 +600,7 @@ instance AstNode SubstitutionsSection where
   nodeSyntax (SubstitutionsSection c) = c
 
 substitutionsOf :: SubstitutionsSection -> [Substitution]
-substitutionsOf (SubstitutionsSection c) = astChildren c
+substitutionsOf (SubstitutionsSection c) = Ast.children c
 
 newtype Substitution = Substitution C
 
@@ -617,7 +618,7 @@ substitutionIdents :: Substitution -> [Text]
 substitutionIdents (Substitution c) = idents c
 
 substitutionHoms :: Substitution -> [Hom]
-substitutionHoms (Substitution c) = astChildren c
+substitutionHoms (Substitution c) = Ast.children c
 
 newtype FreevarsSection = FreevarsSection C
 
@@ -627,7 +628,7 @@ instance AstNode FreevarsSection where
   nodeSyntax (FreevarsSection c) = c
 
 freevarsOf :: FreevarsSection -> [Freevar]
-freevarsOf (FreevarsSection c) = astChildren c
+freevarsOf (FreevarsSection c) = Ast.children c
 
 newtype Freevar = Freevar C
 
@@ -641,7 +642,7 @@ freevarIdents :: Freevar -> [Text]
 freevarIdents (Freevar c) = idents c
 
 freevarHoms :: Freevar -> [Hom]
-freevarHoms (Freevar c) = astChildren c
+freevarHoms (Freevar c) = Ast.children c
 
 newtype EmbedSection = EmbedSection C
 
@@ -651,7 +652,7 @@ instance AstNode EmbedSection where
   nodeSyntax (EmbedSection c) = c
 
 embedsOf :: EmbedSection -> [Embed]
-embedsOf (EmbedSection c) = astChildren c
+embedsOf (EmbedSection c) = Ast.children c
 
 newtype ParsingSection = ParsingSection C
 
@@ -661,7 +662,7 @@ instance AstNode ParsingSection where
   nodeSyntax (ParsingSection c) = c
 
 parsingAnnotations :: ParsingSection -> [ParsingAnnotation]
-parsingAnnotations (ParsingSection c) = astChildren c
+parsingAnnotations (ParsingSection c) = Ast.children c
 
 newtype ParsingAnnotation = ParsingAnnotation C
 
@@ -689,7 +690,7 @@ homsSectionWrapper :: HomsSection -> Text
 homsSectionWrapper (HomsSection c) = maybe "" id (listToMaybe (idents c))
 
 homsSectionItems :: HomsSection -> [HomsItem]
-homsSectionItems (HomsSection c) = astChildren c
+homsSectionItems (HomsSection c) = Ast.children c
 
 newtype HomsItem = HomsItem C
 
@@ -702,10 +703,10 @@ homsItemName :: HomsItem -> Text
 homsItemName (HomsItem c) = maybe "" id (listToMaybe (idents c))
 
 homsItemBindspecs :: HomsItem -> [Bindspecs]
-homsItemBindspecs (HomsItem c) = astChildren c
+homsItemBindspecs (HomsItem c) = Ast.children c
 
 homsItemHoms :: HomsItem -> [Hom]
-homsItemHoms (HomsItem c) = astChildren c
+homsItemHoms (HomsItem c) = Ast.children c
 
 newtype CoqSection = CoqSection C
 
@@ -747,10 +748,10 @@ defnsWrapper :: Defns -> Text
 defnsWrapper (Defns c) = maybe "" id (listToMaybe (drop 1 (idents c)))
 
 defnsHoms :: Defns -> [Hom]
-defnsHoms (Defns c) = astChildren c
+defnsHoms (Defns c) = Ast.children c
 
 defnsDefns :: Defns -> [Defn]
-defnsDefns (Defns c) = astChildren c
+defnsDefns (Defns c) = Ast.children c
 
 newtype Defn = Defn C
 
@@ -772,7 +773,7 @@ defnWrapper :: Defn -> Text
 defnWrapper (Defn c) = maybe "" id (listToMaybe (identsIn (segment 3 c)))
 
 defnHoms :: Defn -> [Hom]
-defnHoms (Defn c) = astChildren c
+defnHoms (Defn c) = Ast.children c
 
 data BodyItem
   = BodyRule DRule
@@ -783,7 +784,7 @@ defnBodyItems :: Defn -> [BodyItem]
 defnBodyItems (Defn c) = mapMaybe castBodyItem (children c)
 
 castBodyItem :: C -> Maybe BodyItem
-castBodyItem t = case cursorKind t of
+castBodyItem t = case Cursor.kind t of
   K.DRule -> Just (BodyRule (DRule t))
   K.Lineless -> Just (BodyLineless (Lineless t))
   K.DefnCom -> Just (BodyDefnCom (DefnCom t))
@@ -800,7 +801,7 @@ drulePremises :: DRule -> [LineNode]
 drulePremises (DRule c) = map LineNode (nodes K.Premise c)
 
 druleRuleLine :: DRule -> Maybe RuleLine
-druleRuleLine (DRule c) = astChild c
+druleRuleLine (DRule c) = Ast.child c
 
 druleConclusions :: DRule -> [LineNode]
 druleConclusions (DRule c) = map LineNode (nodes K.Conclusion c)
@@ -818,7 +819,7 @@ ruleLineDashes (RuleLine c) = maybe "" tokenValue (listToMaybe (tokens K.Dashes 
 -- | The text after the dashes, exactly as written.
 ruleLineAnnotation :: RuleLine -> Text
 ruleLineAnnotation (RuleLine c) = case break (kindIs K.Dashes) (children c) of
-  (_, _ : more) -> T.concat (map (renderElement . cursorGreen) more)
+  (_, _ : more) -> T.concat (map (Green.render . Cursor.green) more)
   (_, []) -> ""
 
 ruleLineCategories :: RuleLine -> [Text]
@@ -828,14 +829,14 @@ ruleLineName :: RuleLine -> Text
 ruleLineName (RuleLine c) = maybe "" id (listToMaybe (identsIn (segment 1 c)))
 
 ruleLineHoms :: RuleLine -> [Hom]
-ruleLineHoms (RuleLine c) = astChildren c
+ruleLineHoms (RuleLine c) = Ast.children c
 
 -- | A 'Premise', 'Conclusion', 'Formula' or 'Clause' node.
 newtype LineNode = LineNode C
 
 instance AstNode LineNode where
   type AstNodeKind LineNode = Kind
-  castNode = matchNode (`elem` [K.Premise, K.Conclusion, K.Formula, K.Clause]) LineNode
+  castNode = Ast.matchNode (`elem` [K.Premise, K.Conclusion, K.Formula, K.Clause]) LineNode
   nodeSyntax (LineNode c) = c
 
 lineIndent :: LineNode -> Text
@@ -876,10 +877,10 @@ funsName :: Funs -> Text
 funsName (Funs c) = maybe "" id (listToMaybe (idents c))
 
 funsHoms :: Funs -> [Hom]
-funsHoms (Funs c) = astChildren c
+funsHoms (Funs c) = Ast.children c
 
 funsDefns :: Funs -> [Fundefn]
-funsDefns (Funs c) = astChildren c
+funsDefns (Funs c) = Ast.children c
 
 newtype Fundefn = Fundefn C
 
@@ -898,7 +899,7 @@ fundefnName :: Fundefn -> Text
 fundefnName (Fundefn c) = maybe "" id (listToMaybe (identsIn (segment 2 c)))
 
 fundefnHoms :: Fundefn -> [Hom]
-fundefnHoms (Fundefn c) = astChildren c
+fundefnHoms (Fundefn c) = Ast.children c
 
 fundefnClauses :: Fundefn -> [LineNode]
 fundefnClauses (Fundefn c) = map LineNode (nodes K.Clause c)

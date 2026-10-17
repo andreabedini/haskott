@@ -38,13 +38,13 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Graft.Cursor
-import Graft.Green
-import Graft.Range (rangeEnd, rangeStart)
+import Graft
+import qualified Graft.Cursor as Cursor
+import qualified Graft.Green as Green
+import qualified Graft.Range as Range
 import Haskott.Load
 import Haskott.Spec
 import Haskott.Syntax (ParseError (..))
-import Graft.Ast (castNode, nodeSyntax)
 import qualified Data.Map.Strict as M
 import Data.Maybe (mapMaybe)
 import Haskott.Syntax.Ast (identValue)
@@ -112,7 +112,7 @@ renameRoot old new specFiles docFiles = do
 loadProblem :: Text -> LoadError -> Problem
 loadProblem prefix e = case e of
   LoadParse f src pe -> Problem (Just (f, src, parseErrorOffset pe)) (prefix <> parseErrorMessage pe)
-  LoadCheck f src d -> Problem (Just (f, src, fromIntegral (rangeStart (diagRange d)))) (prefix <> diagMessage d)
+  LoadCheck f src d -> Problem (Just (f, src, fromIntegral (Range.start (diagRange d)))) (prefix <> diagMessage d)
 
 ------------------------------------------------------------------------
 -- What may be renamed
@@ -196,7 +196,7 @@ type C = Cursor Kind
 
 -- | The edits of one specification file, from its spliced tree.
 treeEdits :: Ctx -> Source -> GreenNode Kind -> ([Problem], [Edit])
-treeEdits ctx s tree = mconcat (map (visit [] Set.empty) (cursorChildren (rootCursor (Node tree))))
+treeEdits ctx s tree = mconcat (map (visit [] Set.empty) (Cursor.children (Cursor.fromGreen (Node tree))))
   where
     file = srcPath s
     text = srcText s
@@ -207,23 +207,23 @@ treeEdits ctx s tree = mconcat (map (visit [] Set.empty) (cursorChildren (rootCu
     -- or the names of the enclosing declaration; a reference that names
     -- none of them is target text, not a root
     visit :: [Kind] -> Set.Set Text -> C -> ([Problem], [Edit])
-    visit anc owner c = case cursorGreen c of
+    visit anc owner c = case Cursor.green c of
       Token t -> tokenEdits anc owner c t
       Node _
-        | cursorKind c == K.HomRef && (K.Embed `elem` anc || K.DefnCom `elem` anc) && not (spliced c) -> quotationEdits c
+        | Cursor.kind c == K.HomRef && (K.Embed `elem` anc || K.DefnCom `elem` anc) && not (spliced c) -> quotationEdits c
         | otherwise ->
-            let owner' = case cursorKind c of
+            let owner' = case Cursor.kind c of
                   k | k `elem` [K.Prod, K.Defn, K.Fundefn, K.MetavarDecl, K.Rule] -> ownerIdents c
                   K.DRule -> Set.empty
-                  K.HomsItem -> case (castNode c, cursorParent c >>= castNode) of
+                  K.HomsItem -> case (castNode c, Cursor.parent c >>= castNode) of
                     (Just item, Just section) -> M.findWithDefault Set.empty (A.homsSectionWrapper section <> A.homsItemName item) (cOwners ctx)
                     _ -> Set.empty
                   _ -> owner
-             in mconcat (map (visit (cursorKind c : anc) owner') (cursorChildren c))
+             in mconcat (map (visit (Cursor.kind c : anc) owner') (Cursor.children c))
 
 
 
-    spliced c = any (isTermKind . cursorKind) (cursorChildren c)
+    spliced c = any (isTermKind . Cursor.kind) (Cursor.children c)
     isTermKind k = case k of
       K.TNode _ _ -> True
       K.TNonterm -> True
@@ -232,10 +232,10 @@ treeEdits ctx s tree = mconcat (map (visit [] Set.empty) (cursorChildren (rootCu
       _ -> False
 
     tokenEdits anc owner c t =
-      let k = tokenKind t
-          v = tokenText t
-          start = fromIntegral (rangeStart (cursorRange c))
-          end = fromIntegral (rangeEnd (cursorRange c))
+      let k = Green.tokenKind t
+          v = Green.text t
+          start = fromIntegral (Range.start (Cursor.range c))
+          end = fromIntegral (Range.end (Cursor.range c))
           parent = case anc of (p : _) -> Just p; [] -> Nothing
           grand = case anc of (_ : g : _) -> Just g; _ -> Nothing
           one r = case r of
@@ -275,14 +275,14 @@ treeEdits ctx s tree = mconcat (map (visit [] Set.empty) (cursorChildren (rootCu
               | otherwise -> ([], [])
             _ -> ([], [])
 
-    colonsBefore c = length [() | p <- prevSiblings c, cursorKind p == K.ColonColon]
+    colonsBefore c = length [() | p <- prevSiblings c, Cursor.kind p == K.ColonColon]
     -- an auxiliary function, applied as in f(x) or defined as in f = x
-    auxFunction c = case filter (not . trivia . cursorKind) (nextSiblings c) of
-      (n : _) -> cursorKind n `elem` [K.LParen, K.Eq]
+    auxFunction c = case filter (not . trivia . Cursor.kind) (nextSiblings c) of
+      (n : _) -> Cursor.kind n `elem` [K.LParen, K.Eq]
       [] -> False
-    nextSiblings = unfoldr (\x -> fmap (\n -> (n, n)) (cursorNextSibling x))
+    nextSiblings = unfoldr (\x -> fmap (\n -> (n, n)) (Cursor.nextSibling x))
     trivia k = k `elem` [K.Space, K.Newline, K.LineComment, K.BlockComment]
-    prevSiblings = unfoldr (\x -> fmap (\p -> (p, p)) (cursorPreviousSibling x))
+    prevSiblings = unfoldr (\x -> fmap (\p -> (p, p)) (Cursor.previousSibling x))
 
     -- a lineless block's line is parsed on its own
     lineEdits start v = case termEdits ctx "formula" userSyntaxTransform v of
@@ -291,11 +291,11 @@ treeEdits ctx s tree = mconcat (map (visit [] Set.empty) (cursorChildren (rootCu
 
     -- the quotation of an embed or comment block, parsed as user syntax
     quotationEdits c =
-      let inner = [x | x <- cursorChildren c, cursorKind x /= K.RefOpen, cursorKind x /= K.RefClose]
-          q = T.concat (map (renderElement . cursorGreen) inner)
+      let inner = [x | x <- Cursor.children c, Cursor.kind x /= K.RefOpen, Cursor.kind x /= K.RefClose]
+          q = T.concat (map (Green.render . Cursor.green) inner)
           start = case inner of
-            (x : _) -> fromIntegral (rangeStart (cursorRange x))
-            [] -> fromIntegral (rangeEnd (cursorRange c))
+            (x : _) -> fromIntegral (Range.start (Cursor.range x))
+            [] -> fromIntegral (Range.end (Cursor.range c))
        in case termEdits ctx "user_syntax" userSyntaxTransform q of
             Right es -> ([], map (shiftEdit start) es)
             Left m -> ([problemAt start m], [])
@@ -305,19 +305,19 @@ treeEdits ctx s tree = mconcat (map (visit [] Set.empty) (cursorChildren (rootCu
 -- written, but the user may want to look at them.
 mentions :: Ctx -> GreenNode Kind -> [(Int, Text)]
 mentions ctx tree =
-  [ (fromIntegral (rangeStart (cursorRange c)) + off, w)
-  | c <- cursorDescendants (rootCursor (Node tree))
-  , Token t <- [cursorGreen c]
-  , isTarget c (tokenKind t)
-  , (off, w) <- identWords (tokenText t)
+  [ (fromIntegral (Range.start (Cursor.range c)) + off, w)
+  | c <- Cursor.descendants (Cursor.fromGreen (Node tree))
+  , Token t <- [Cursor.green c]
+  , isTarget c (Green.tokenKind t)
+  , (off, w) <- identWords (Green.text t)
   , involvesRoot ctx w
   ]
   where
     isTarget c k = case k of
       K.LineComment -> True
       K.BlockComment -> True
-      K.HomText -> case cursorParent c of
-        Just p -> cursorKind p `elem` [K.Hom, K.Embed, K.DefnCom]
+      K.HomText -> case Cursor.parent c of
+        Just p -> Cursor.kind p `elem` [K.Hom, K.Embed, K.DefnCom]
         Nothing -> False
       _ -> False
 
@@ -346,11 +346,11 @@ involvesRoot ctx w = case renameLexed ctx Nothing w of
 ownerIdents :: C -> Set.Set Text
 ownerIdents c =
   Set.fromList
-    [ tokenText t
-    | d <- cursorDescendants c
-    , Token t <- [cursorGreen d]
-    , tokenKind t `elem` [K.Element, K.QuotedElement] || (tokenKind t == K.Ident && fmap cursorKind (cursorParent d) == Just K.Name)
-    , K.Hom `notElem` map cursorKind (drop 1 (cursorAncestors d))
+    [ Green.text t
+    | d <- Cursor.descendants c
+    , Token t <- [Cursor.green d]
+    , Green.tokenKind t `elem` [K.Element, K.QuotedElement] || (Green.tokenKind t == K.Ident && fmap Cursor.kind (Cursor.parent d) == Just K.Name)
+    , K.Hom `notElem` map Cursor.kind (drop 1 (Cursor.ancestors d))
     ]
 
 -- | The owners of the productions and judgement forms of a tree, by the
@@ -368,7 +368,7 @@ namedOwners tree =
          , d <- A.defnsDefns ds
          ]
   where
-    items = mapMaybe A.castItem (cursorChildren (rootCursor (Node tree)))
+    items = mapMaybe A.castItem (Cursor.children (Cursor.fromGreen (Node tree)))
 
 shiftEdit :: Int -> Edit -> Edit
 shiftEdit n e = e {editStart = editStart e + n, editEnd = editEnd e + n}
@@ -413,8 +413,8 @@ termEdits ctx root transform q =
     flatten :: Int -> [GreenElement Kind] -> [(Int, Kind, Text)]
     flatten _ [] = []
     flatten off (el : rest) = case el of
-      Token t -> (off, tokenKind t, tokenText t) : flatten (off + byteLength (tokenText t)) rest
-      Node n -> flatten off (nodeChildren n) ++ flatten (off + fromIntegral (elementTextLength el)) rest
+      Token t -> (off, Green.tokenKind t, Green.text t) : flatten (off + byteLength (Green.text t)) rest
+      Node n -> flatten off (Green.children n) ++ flatten (off + fromIntegral (Green.length el)) rest
 
 byteLength :: Text -> Int
 byteLength = B.length . TE.encodeUtf8
