@@ -28,12 +28,19 @@ module Haskott.Rename
   , renameableRoots
   , validNewName
   , applyEdits
+    -- * Looking roots up
+  , Index
+  , indexSpec
+  , indexRenameable
+  , occurrences
+  , declarations
+  , rootAt
   ) where
 
 import Control.Monad (unless, when)
 import qualified Data.ByteString as B
 import Data.Char (isAlpha, isAlphaNum)
-import Data.List (sortOn, unfoldr)
+import Data.List (nub, sortOn, unfoldr)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -682,3 +689,100 @@ docSignature rn tp docs =
     parses q = case userSyntaxTransform (parseComplete tp "user_syntax" False q) of
       [] -> "no parses"
       ps -> T.intercalate " | " (map (ppPlainSymterm . renameSymterm rn . parseTerm) ps)
+
+------------------------------------------------------------------------
+-- Looking roots up, for editors
+
+-- | A specification loaded once for looking its roots up: its files with
+-- their terms spliced, and the documents filtered against it. It is
+-- loaded with recovery, so it exists as long as the early checks find a
+-- specification; while there are errors the terms are not spliced, and
+-- the roots of rule lines are not found.
+data Index = Index
+  { ixRoots :: Roots
+  , ixRenameable :: [Text]
+  , ixParser :: TermParser
+  , ixOwners :: M.Map Text (Set.Set Text)
+  , ixSources :: [(Source, GreenNode Kind)]
+  , ixDocs :: [(FilePath, Text)]
+  }
+
+indexSpec :: [(FilePath, Text)] -> [(FilePath, Text)] -> Maybe Index
+indexSpec specFiles docFiles = do
+  let checked = loadSpecRecovering specFiles
+      sources = ckSources checked
+  spec <- ckSpec checked
+  let tp = makeTermParser spec
+      splice s
+        | null (ckDiagnostics checked) = let (t, _, _) = spliceTerms (FirstIfSame []) tp (srcTree s) in t
+        | otherwise = srcTree s
+  pure
+    Index
+      { ixRoots = specRoots spec
+      , ixRenameable = renameableRoots spec
+      , ixParser = tp
+      , ixOwners = M.unions (map (namedOwners . srcTree) sources)
+      , ixSources = [(s, splice s) | s <- sources]
+      , ixDocs = docFiles
+      }
+
+-- | The names 'renameRoot' accepts.
+indexRenameable :: Index -> [Text]
+indexRenameable = ixRenameable
+
+-- | Every place a root occurs, as the bytes of the identifiers that
+-- 'renameRoot' would rewrite, in each file and document that has one.
+occurrences :: Index -> Text -> [(FilePath, Text, [(Int, Int)])]
+occurrences ix root =
+  filter
+    (\(_, _, rs) -> not (null rs))
+    ( [(srcPath s, srcText s, ranges (treeEdits ctx s t)) | (s, t) <- ixSources ix]
+        ++ [(f, src, ranges (docEdits ctx f src)) | (f, src) <- ixDocs ix]
+    )
+  where
+    ctx = Ctx root root (ixRoots ix) (ixParser ix) (ixOwners ix)
+    ranges (_, es) = [(editStart e, editEnd e) | e <- es]
+
+-- | Where a root is declared: the names of metavariable declarations and
+-- grammar rules.
+declarations :: Index -> Text -> [(FilePath, Text, (Int, Int))]
+declarations ix root =
+  [ (srcPath s, srcText s, (fromIntegral (Range.start r), fromIntegral (Range.end r)))
+  | (s, t) <- ixSources ix
+  , c <- Cursor.descendants (Cursor.fromGreen (Node t))
+  , Token tok <- [Cursor.green c]
+  , Green.tokenKind tok == K.Ident
+  , identValue (Green.text tok) == root
+  , fmap Cursor.kind (Cursor.parent c) == Just K.Name
+  , fmap Cursor.kind (Cursor.parent c >>= Cursor.parent) `elem` [Just K.MetavarDecl, Just K.Rule]
+  , let r = Cursor.range c
+  ]
+
+-- | The root of the identifier at a byte offset of a file or document, if
+-- the identifier is one of its occurrences: the root itself when the
+-- identifier reads as a root with a suffix, before an index variable of
+-- the suffix.
+rootAt :: Index -> FilePath -> Int -> Maybe Text
+rootAt ix file off = case lookup file texts of
+  Nothing -> Nothing
+  Just src ->
+    let ws = [w | (o, w) <- identWords src, o <= off, off <= o + byteLength w]
+        candidates = nub (concatMap rootsOf ws)
+        covers (a, b) = a <= off && off <= b
+        occursHere r = or [any covers rs | (f, _, rs) <- occurrences ix r, f == file]
+     in case filter occursHere candidates of
+          r : _ -> Just r
+          [] -> Nothing
+  where
+    texts = [(srcPath s, srcText s) | (s, _) <- ixSources ix] ++ ixDocs ix
+    rootsOf w =
+      [identValue w | identValue w `elem` allRoots]
+        ++ concat [tokRoots l | l <- lexIdent (ixRoots ix) w]
+    allRoots = rootsNonindexMetavars (ixRoots ix) ++ rootsIndexvars (ixRoots ix) ++ rootsNonterms (ixRoots ix)
+    tokRoots l = case l of
+      TokMetavar r suff -> r : concatMap siRoots suff
+      TokNonterm r suff -> r : concatMap siRoots suff
+    siRoots si = case si of
+      SiVar x _ -> [x]
+      SiIndexed x inner -> x : siRoots inner
+      _ -> []

@@ -108,21 +108,34 @@ not about.
   line, and the corpus suite checks the first problem of every file
   against `test/first-diagnostics.tsv`.
 - Milestone 9, language server: `haskott lsp` speaks the Language Server
-  Protocol over stdio and reports every problem (`Haskott.Diagnostics`)
-  of the specifications an edited file is part of, a short while after
-  the last change; a newer change cancels a check still running. A
-  specification can span several files, so the workspace lists them in
-  `haskott.json` at its root, in the order Ott reads them:
+  Protocol over stdio. A specification can span several files, so they
+  are listed in a `haskott.json`, in the order Ott reads them, with the
+  documents filtered against each. For a file, the nearest `haskott.json`
+  at or above its directory (up to the workspace root) counts, and its
+  paths are relative to its own directory:
 
   ```json
-  { "specs": [ { "files": ["ott/style.ott", "ott/expressions.ott"], "picky": true },
+  { "specs": [ { "files": ["ott/style.ott", "ott/expressions.ott"], "picky": true,
+                 "documents": ["doc/report.src.typ"] },
                { "files": ["ott/style.ott", "ott/layout.ott"], "picky": true } ] }
   ```
 
-  A file in several specifications shows the problems of all of them, and
-  a file none lists is checked on its own. Open files are read from the
-  editor, the others from disk. `cabal test lsp` drives the server through
-  a client. Diagnostics only for now: navigation and rename come next.
+  A file none lists is a specification of its own. Open files are read
+  from the editor, the others from disk.
+  - Diagnostics: every problem (`Haskott.Diagnostics`) of the
+    specifications an edited file is part of, a short while after the last
+    change; a newer change cancels a check still running. A file in
+    several specifications shows the problems of all of them.
+  - Navigation: go to the declaration of a metavariable, index variable or
+    grammar rule; find its references and highlight them, in the files and
+    documents of the specification (the occurrences `rename` would edit);
+    and an outline of each file (`Haskott.Outline`).
+  - Rename: the verified `haskott rename`, applied to every specification
+    the edit reaches, so a file shared by two specifications is renamed in
+    both. The edit names the versions of the open files it was computed
+    from, so an editor refuses it if a file changed meanwhile.
+
+  `cabal test lsp` drives the server through a client.
 - Not yet done: TeX output, Ott's remaining checks (bounds consistency at
   output time among them), prover back ends.
 
