@@ -239,7 +239,12 @@ build spec = do
       terminalsSet = Set.fromList (concatMap ruleTerminals (specRules spec))
       isTm s = Set.member s terminalsSet
       mvds = specMetavars spec
-      mvdOf r = fromMaybe (error ("no metavar " ++ T.unpack r)) (lookupMvd r)
+      -- a metavariable without a declaration (one that did not check) is a
+      -- nonterminal with no productions
+      mvdOf r = fromMaybe (MetavarDefn r [] [] False False False noRange) (lookupMvd r)
+      noRange = case [mvdRange md | md <- specMetavars spec] of
+        (x : _) -> x
+        [] -> error "buildGrammar: no ranges"
       lookupMvd r = case [md | md <- mvds, mvdName md == r] of
         (md : _) -> Just md
         [] -> Nothing
@@ -376,10 +381,8 @@ build spec = do
 
   -- priorities of parsing annotations
   b <- get
-  forM_ (specParsing spec) $ \pa -> do
-    let (i1, i1') = fromMaybe (bad "parsing annotation") (M.lookup (paLeft pa) (bIndex2 b))
-        (i2, i2') = fromMaybe (bad "parsing annotation") (M.lookup (paRight pa) (bIndex2 b))
-        entries = case paOperator pa of
+  forM_ [(pa, l, r) | pa <- specParsing spec, Just l <- [M.lookup (paLeft pa) (bIndex2 b)], Just r <- [M.lookup (paRight pa) (bIndex2 b)]] $ \(pa, (i1, i1'), (i2, i2')) -> do
+    let entries = case paOperator pa of
           "<=" -> [("Greater", i2, i1), ("Greater", i2', i1)]
           "left" -> [("Left", i1, i2), ("Left", i1', i2)]
           "right" -> [("Right", i1, i2), ("Right", i1', i2)]

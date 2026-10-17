@@ -20,12 +20,13 @@
 module Haskott.Syntax.Parser
   ( ParseError (..)
   , parseDocument
+  , parseDocumentRecovering
   , parseErrorPosition
   , metaKeywords
   ) where
 
 import Control.Monad (ap, liftM)
-import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
+import Data.Char (isAsciiLower, isAsciiUpper, isDigit, isSpace)
 import Data.List (find)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -61,9 +62,20 @@ parseErrorPosition src (ParseError off _) =
       nls = T.count "\n" before + T.count "\r" before - T.count "\r\n" before
    in (nls + 1, T.length lineText + 1)
 
--- | Parse a whole Ott source file into a 'Document' node.
+-- | Parse a whole Ott source file into a 'Document' node, failing at the
+-- first error as Ott does.
 parseDocument :: Text -> Either ParseError (GreenNode Kind)
-parseDocument src = fst <$> unP pDocument (S src 0 0)
+parseDocument src = fst <$> unP pDocument (S src 0 0 False [])
+
+-- | Parse a whole file, recovering from errors: an item, production or
+-- definition that does not parse becomes an 'ErrorItem' node holding the
+-- text up to the next line where parsing can resume, and parsing goes on
+-- from there. The tree still renders to the input, and the errors come in
+-- source order; the first is the error 'parseDocument' reports.
+parseDocumentRecovering :: Text -> (GreenNode Kind, [ParseError])
+parseDocumentRecovering src = case unP pDocument (S src 0 0 True []) of
+  Right (tree, s) -> (tree, reverse (sErrors s))
+  Left e -> (greenNode Document [Node (greenNode ErrorItem [Token (greenToken Garbage src) | not (T.null src)])], [e])
 
 ------------------------------------------------------------------------
 -- The parser monad
@@ -74,6 +86,10 @@ data S = S
   -- ^ byte offset of 'sRest' in the input
   , sLineStart :: !Int
   -- ^ byte offset of the start of the current line
+  , sRecover :: !Bool
+  -- ^ whether item loops recover from errors
+  , sErrors :: [ParseError]
+  -- ^ the errors recovered from, most recent first
   }
 
 newtype P a = P {unP :: S -> Either ParseError (a, S)}
@@ -321,6 +337,61 @@ mIdent what = mExpect (== MIdent) what
 -- without consuming anything.
 type Step = Maybe Int -> [Elem] -> P (Maybe (GreenNode Kind, [Elem]))
 
+-- | A step that recovers from errors: when the step fails, and the parser
+-- recovers, the error is recorded, the input from the start of the item to
+-- the end of the line before the next line the predicate accepts becomes
+-- an 'ErrorItem', and the loop goes on from that line. Nothing before the
+-- error is parsed differently, so the first error recorded is the one a
+-- parser without recovery reports.
+recovering :: (Text -> Bool) -> Step -> Step
+recovering sync step col indent = P $ \s -> case unP (step col indent) s of
+  Right r -> Right r
+  Left e
+    | not (sRecover s) -> Left e
+    | otherwise ->
+        let skipped = skipToSync sync (sRest s)
+            s' = s {sErrors = e : sErrors s}
+         in if T.null skipped
+              then Right (Nothing, s')
+              else unP (recovered skipped) s'
+  where
+    recovered skipped = do
+      g <- tokenOf Garbage skipped
+      pure (Just (greenNode ErrorItem (indent ++ [g]), []))
+
+-- | The text from here to the end of the line before the first later line
+-- the predicate accepts, or to the end of the input.
+skipToSync :: (Text -> Bool) -> Text -> Text
+skipToSync sync t = go (T.length firstLine)
+  where
+    firstLine = T.takeWhile (/= '\n') t
+    go n =
+      let after = T.drop n t
+       in case T.uncons after of
+            Nothing -> t
+            Just (_, next) ->
+              let line = T.takeWhile (/= '\n') next
+               in if sync line
+                    then T.dropWhileEnd (== '\r') (T.take n t)
+                    else go (n + 1 + T.length line)
+
+-- | Lines where parsing can resume.
+itemLine, ruleLine, prodLine, nonBlankLine, defnLine, funLine, embedLine, homsItemLine :: Text -> Bool
+itemLine l = firstWord l `elem` itemKeywords
+ruleLine l = itemLine l || ("::=" `T.isInfixOf` l && not ("|" `T.isPrefixOf` T.stripStart l) && not (commentLine l))
+prodLine l = "|" `T.isPrefixOf` T.stripStart l || ruleLine l
+nonBlankLine l = let t = T.stripStart l in not (T.null t) && not (commentLine l)
+defnLine l = itemLine l || firstWord l == "defn"
+funLine l = itemLine l || firstWord l == "fun"
+embedLine l = itemLine l || "{{" `T.isPrefixOf` T.stripStart l
+homsItemLine l = itemLine l || "::" `T.isPrefixOf` T.stripStart l
+
+firstWord :: Text -> Text
+firstWord = T.takeWhile (not . isSpace) . T.stripStart
+
+commentLine :: Text -> Bool
+commentLine l = "%" `T.isPrefixOf` T.stripStart l
+
 -- | Parse items separated by trivia. Returns the children of the enclosing
 -- node and the trailing trivia that belongs to the enclosing node's parent.
 -- The initial pending trivia is what the caller consumed before the first
@@ -356,7 +427,7 @@ splitIndent es = case reverse es of
 itemColumn :: [Elem] -> P (Maybe Int)
 itemColumn indent = do
   s <- getS
-  let w = sum (map elementTextLength indent)
+  let w = fromIntegral (sum (map elementTextLength indent))
   pure (if sOff s - w == sLineStart s then Just w else Nothing)
 
 -- | Take a node's trailing trivia children off it.
@@ -396,7 +467,7 @@ rule2 col es = concat (take best ls)
       [Space] -> Just False
       [LineComment] -> Nothing
       [Space, LineComment] ->
-        if elementTextLength (l !! 1) > col then Just True else Nothing
+        if fromIntegral (elementTextLength (l !! 1)) > col then Just True else Nothing
       _ -> Nothing
     linesOf [] = []
     linesOf (e : more) =
@@ -414,7 +485,7 @@ splitTrailing es =
 
 pDocument :: P (GreenNode Kind)
 pDocument = do
-  (children, leftover) <- itemLoop metaTrivia [] step
+  (children, leftover) <- itemLoop metaTrivia [] (recovering itemLine step)
   pure (greenNode Document (children ++ leftover))
   where
     step _ indent = do
@@ -449,12 +520,16 @@ pItem k indent = case k of
     kwIdent w = (++) <$> mKw w <*> mIdent "a name"
     section kind step = do
       kw <- mKw k
-      (children, leftover) <- itemLoop metaTrivia [] step
+      (children, leftover) <- itemLoop metaTrivia [] (recovering (syncFor kind) step)
       pure (greenNode kind (indent ++ kw ++ children), leftover)
+    syncFor kind = case kind of
+      GrammarSection -> ruleLine
+      EmbedSection -> embedLine
+      _ -> nonBlankLine
     homsSection = do
       header <- (++) <$> mKw "homs" <*> mIdent "a production-name prefix"
       let (header', pending) = splitTrailing header
-      (children, leftover) <- itemLoop metaTrivia pending homsItemStep
+      (children, leftover) <- itemLoop metaTrivia pending (recovering homsItemLine homsItemStep)
       pure (greenNode HomsSection (indent ++ header' ++ children), leftover)
 
 -- | End of a section: an item keyword or the end of the file.
@@ -727,7 +802,7 @@ pRule indent = do
   cce <- mSym "::="
   homs <- pHoms
   let (header, pending) = splitTrailing (names ++ cc ++ prefix ++ cce ++ homs)
-  (prods, leftover) <- itemLoop metaTrivia pending prodStep
+  (prods, leftover) <- itemLoop metaTrivia pending (recovering prodLine prodStep)
   pure (greenNode Rule (indent ++ header ++ prods), leftover)
 
 prodStep :: Step
@@ -1192,7 +1267,7 @@ pDefns indent = do
   cce <- mSym "::="
   homs <- pHoms
   let (header, pending) = splitTrailing (kw ++ name ++ cc ++ prefix ++ cce ++ homs)
-  (defns, leftover) <- itemLoop metaTrivia pending defnStep
+  (defns, leftover) <- itemLoop metaTrivia pending (recovering defnLine defnStep)
   pure (greenNode Defns (indent ++ header ++ defns), leftover)
 
 defnStep :: Step
@@ -1403,7 +1478,7 @@ pBlock = collect [] Nothing [] Nothing
       Just _ -> collect before mstart (items ++ es) dashes
     startCol mstart i = case mstart of
       Just c -> Just c
-      Nothing -> Just (sum (map elementTextLength i))
+      Nothing -> Just (fromIntegral (sum (map elementTextLength i)))
     newlineAfter = do
       r <- rest
       if not (T.null r) && isNl (T.head r) then (: []) <$> newlineToken r else pure []
@@ -1429,7 +1504,7 @@ pFuns indent = do
   cce <- mSym "::="
   homs <- pHoms
   let (header, pending) = splitTrailing (kw ++ name ++ cce ++ homs)
-  (funs, leftover) <- itemLoop metaTrivia pending funStep
+  (funs, leftover) <- itemLoop metaTrivia pending (recovering funLine funStep)
   pure (greenNode Funs (indent ++ header ++ funs), leftover)
 
 funStep :: Step
@@ -1477,7 +1552,7 @@ funBody = do
           r <- rest
           nl <- if not (T.null r) && isNl (T.head r) then (: []) <$> newlineToken r else pure []
           let (acc', pending') = flush prev acc pending
-              col = Just (sum (map elementTextLength i))
+              col = Just (fromIntegral (sum (map elementTextLength i)))
           go (Just (greenNode Clause (i ++ [l]), col)) (acc' ++ pending') nl
     flush prev acc pending = case prev of
       Nothing -> (acc, pending)

@@ -107,6 +107,10 @@ data Kind
   | PremiseLabel
     -- ^ the @:name@ of a named premise
 
+    -- * Error recovery
+  | Garbage
+    -- ^ text skipped after a parse error, up to where parsing resumed
+
     -- * Nodes (§3, §4)
   | Document
   | MetavarDecl
@@ -175,6 +179,8 @@ data Kind
     -- ^ the trailing @[[:name]]@ of a premise
   | EmbedPremise
     -- ^ a premise of embedded prover code with quoted terms
+  | ErrorItem
+    -- ^ an item that did not parse: its indentation and the skipped text
   deriving (Eq, Ord, Show)
 
 -- | Whitespace and comments.

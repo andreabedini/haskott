@@ -29,6 +29,7 @@ library
     exposed-modules:
         Haskott
         Haskott.Defns
+        Haskott.Diagnostics
         Haskott.Load
         Haskott.Raw
         Haskott.Raw.Show
@@ -97,6 +98,7 @@ test-suite corpus
         bytestring,
         filepath,
         text,
+        graft,
         haskott
 
 test-suite rename-sweep
@@ -112,4 +114,19 @@ test-suite rename-sweep
         containers,
         filepath,
         text,
+        haskott
+
+test-suite recovery
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    default-language: GHC2021
+    main-is:          Recovery.hs
+    build-depends:
+        base,
+        bytestring,
+        containers,
+        filepath,
+        text,
+        graft,
         haskott

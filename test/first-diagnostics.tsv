@@ -1,0 +1,162 @@
+# The first line `haskott check` printed for each corpus file before error
+# recovery (2026-10-17): the first error, which is the one Ott reports, or
+# "ok". The path prefix is removed. Generated from the acceptance table.
+ott/tests/binding.1.ott	: ok
+ott/tests/binding.2.ott	: ok
+ott/tests/binding.3.ott	: ok
+ott/tests/binding.4.ott	: ok
+ott/tests/binding.5.ott	: ok
+ott/tests/binding.6b.ott	:3:1: dot form has no non-empty identical sequence on each side (perhaps due to a missing indexvar declaration)
+ott/tests/binding.6.ott	: ok
+ott/tests/gmap1.ott	: ok
+ott/tests/gmap2.ott	: ok
+ott/tests/leroy-jfp96.ott	: ok
+ott/tests/LF_hhp93.ott	: ok
+ott/tests/non_super_tabular.ott	: ok
+ott/tests/regexp.ott	: ok
+ott/tests/squishtex.ott	: ok
+ott/tests/stlc.ott	: ok
+ott/tests/test10.0.ott	: ok
+ott/tests/test10.2.ott	: ok
+ott/tests/test10.4.ott	: ok
+ott/tests/test10.7.ott	: ok
+ott/tests/test10_homs.ott	: ok
+ott/tests/test10_isasyn.ott	: ok
+ott/tests/test10.ott	: ok
+ott/tests/test10st_fe.ott	: ok
+ott/tests/test10st_first_half.ott	: ok
+ott/tests/test10st.ott	: ok
+ott/tests/test10_twf.ott	:65:43: illegal hom "icht" for production  (the allowable homs here are isa, coq, hol, lem, tex, typst, texlong, ocaml, com, order, isasyn, isaprec, icho, ichlo, ich, ichl, ic, ch, ih, disambiguate, prec, leftassoc, rightassoc, menhir, quotient-remove, menhir-prec, pp, pp-raw)
+ott/tests/test10typing_minimal.ott	: ok
+ott/tests/test11.ott	: ok
+ott/tests/test12.ott	: ok
+ott/tests/test13b.ott	: ok
+ott/tests/test13d.ott	: ok
+ott/tests/test13.ott	: ok
+ott/tests/test14.ott	: ok
+ott/tests/test15.0.ott	: ok
+ott/tests/test15.1.ott	: ok
+ott/tests/test15.2.ott	: ok
+ott/tests/test15.3.ott	: ok
+ott/tests/test15.4b.ott	: ok
+ott/tests/test15.4c.ott	: ok
+ott/tests/test15.4d.ott	: ok
+ott/tests/test15.4.ott	: ok
+ott/tests/test15.5.ott	: ok
+ott/tests/test15.6.ott	: ok
+ott/tests/test15.7.ott	: ok
+ott/tests/test16.0.ott	: ok
+ott/tests/test16.1.ott	: ok
+ott/tests/test16.2.ott	: ok
+ott/tests/test16.3.ott	: ok
+ott/tests/test16.4.ott	: ok
+ott/tests/test16.5.ott	: ok
+ott/tests/test16.6.ott	: ok
+ott/tests/test17.0.ott	: ok
+ott/tests/test17.10.ott	: ok
+ott/tests/test17.11.ott	: ok
+ott/tests/test17.12.ott	: ok
+ott/tests/test17.13.ott	: ok
+ott/tests/test17.14.ott	: ok
+ott/tests/test17.1.ott	: ok
+ott/tests/test17.2.ott	: ok
+ott/tests/test17.3.ott	: ok
+ott/tests/test17.4.ott	: ok
+ott/tests/test17.5.ott	: ok
+ott/tests/test17.6.ott	: ok
+ott/tests/test17.7.ott	: ok
+ott/tests/test17.8.ott	: ok
+ott/tests/test17.9.ott	: ok
+ott/tests/test18.0.ott	: ok
+ott/tests/test18.1.ott	: ok
+ott/tests/test18.2.ott	: ok
+ott/tests/test19.0.ott	: ok
+ott/tests/test1.ott	: ok
+ott/tests/test21.1.ott	: ok
+ott/tests/test2.ott	: ok
+ott/tests/test3.ott	: ok
+ott/tests/test4.ott	: ok
+ott/tests/test5.ott	: ok
+ott/tests/test6.ott	: ok
+ott/tests/test6-tex.ott	: ok
+ott/tests/test7a.ott	: ok
+ott/tests/test7b.ott	: ok
+ott/tests/test7.ott	:27:1: expected a section keyword (metavar, grammar, defns, ...)
+ott/tests/test8.ott	: ok
+ott/tests/test8p.ott	: ok
+ott/tests/test_bind_aux_empty_1.ott	:8:1: Auxiliary vars in MSE not defined over nonterminal root foo
+ott/tests/test_bind_dots_1.ott	:8:1: Metavariable x[0] in MSE not in scope
+ott/tests/test_bind_isa_1.ott	: ok
+ott/tests/test_brugge1.ott	: ok
+ott/tests/test_brugge2.ott	: ok
+ott/tests/test_coq_equality_x_1.ott	: ok
+ott/tests/test_defn_repeated_nonterminal_1.ott	: ok
+ott/tests/test_embed_location_1.ott	: ok
+ott/tests/test_embed_top_1.ott	: ok
+ott/tests/test_empty_defn.ott	: ok
+ott/tests/test_jan_2006-09-08.ott	:108:1: no parses of "c <: D":
+ott/tests/test-j.ott	: ok
+ott/tests/test_lists_1.ott	:43:1: no parses of "E, E1, ... , En |- lb1 gives E1   ...   E, E1, ... , En |- lbn":
+ott/tests/test_lists_coq_bind_1.ott	: ok
+ott/tests/test_lists_coq_defn_subrule_1.ott	: ok
+ott/tests/test_lists_coq_defn_subrule_2.ott	: ok
+ott/tests/test_lists_coq_defn_subrule_3.ott	: ok
+ott/tests/test_lists_coq_defn_tuple_1.ott	: ok
+ott/tests/test_lists_coq_defn_tuple_2.ott	: ok
+ott/tests/test_lists_coq_list_functions_1.ott	: ok
+ott/tests/test_lists_coq_list_functions_2.ott	: ok
+ott/tests/test_lists_coq_list_functions_3.ott	: ok
+ott/tests/test_lists_coq_list_functions_4.ott	: ok
+ott/tests/test_lists_defn_list_form_1.ott	: ok
+ott/tests/test_lists_freevars_1.ott	: ok
+ott/tests/test_lists_nested_dots_1.ott	: ok
+ott/tests/test_lists_shifted_index_1.ott	: ok
+ott/tests/test_lists_terminal_1.ott	:5:1: dot form has no non-empty identical sequence on each side (perhaps due to a missing indexvar declaration)
+ott/tests/test-lj-list_ambiguity.ott	: ok
+ott/tests/test_merge_embed_location_1-1.ott	: ok
+ott/tests/test_merge_embed_location_1-2.ott	: ok
+ott/tests/test-mjp.ott	: ok
+ott/tests/test-mjp-trans.ott	: ok
+ott/tests/test-pottier1.ott	: ok
+ott/tests/test_quoted_terminal_1.ott	: ok
+ott/tests/test_subrules_1.ott	: ok
+ott/examples/1Bsemantics/l1.ott	: ok
+ott/examples/1Bsemantics/l2.ott	:54:1: no parses of "  <e1,s> -> <e1',s'>":
+ott/examples/ocaml_light/funex.ott	:4:1: function result "name" must be a nonterminal root
+ott/examples/ocaml_light/library.ott	: not valid UTF-8: Cannot decode byte '\xe9': Data.Text.Encoding: Invalid UTF-8 stream
+ott/examples/ocaml_light/opsem.ott	:53:1: no parses of "(function x1-> ... -> function xn->e)  v1 ... vn e1 .. em --> ( { v1 ... vn  / x1 ... xn } e ) e1 .. em":
+ott/examples/ocaml_light/reduction.ott	:12:1: no parses of "|- v matches x":
+ott/examples/ocaml_light/syntax.ott	:840:12: expected ::
+ott/examples/ocaml_light/typing.ott	:439:1: dot form has no non-empty identical sequence on each side (perhaps due to a missing indexvar declaration)
+ott/examples/peterson_caml.ott	: ok
+ott/examples/tapl/arrow.ott	:40:1: no parses of "(\x.t12) v2 --> [x |-> v2]t12 ":
+ott/examples/tapl/arrow_typing.ott	:54:1: no parses of "(\x:T.t12) v2 --> [x |-> v2]t12 ":
+ott/examples/tapl/ascribe.ott	:13:1: no parses of "v1 as T --> v1":
+ott/examples/tapl/basety.ott	: ok
+ott/examples/tapl/bool.ott	: ok
+ott/examples/tapl/bool_typing.ott	:15:1: no parses of "G |- true : Bool":
+ott/examples/tapl/bot.ott	: ok
+ott/examples/tapl/common_index.ott	:7:1: dot form has no non-empty identical sequence on each side (perhaps due to a missing indexvar declaration)
+ott/examples/tapl/common_labels.ott	:8:1: dot form has no non-empty identical sequence on each side (perhaps due to a missing indexvar declaration)
+ott/examples/tapl/common.ott	: ok
+ott/examples/tapl/common_typing.ott	: ok
+ott/examples/tapl/fix.ott	:15:1: no parses of "fix (\x:T1.t2) --> [x|->(fix (\x:T1.t2))]t2":
+ott/examples/tapl/inert.ott	: ok
+ott/examples/tapl/let_alltt.ott	:1:1: lexing error: unexpected \
+ott/examples/tapl/let.ott	:3:54: MSE: "x" is not a metavar or nonterm
+ott/examples/tapl/nat.ott	:37:1: no parses of "pred (succ v1) --> v1 ":
+ott/examples/tapl/nat_typing.ott	:11:1: no parses of "G |- 0 : Nat":
+ott/examples/tapl/product.ott	:28:1: no parses of ":TmPair: {v1,v2}.1 --> v1":
+ott/examples/tapl/record.ott	:7:1: "i" used as an index but not declared as an indexvar
+ott/examples/tapl/record_with_explicit_types.ott	:13:1: "i" used as an index but not declared as an indexvar
+ott/examples/tapl/seq.ott	:16:1: no parses of "unit;t2 --> t2":
+ott/examples/tapl/sub_arrow.ott	:7:1: no parses of "G |- t:S":
+ott/examples/tapl/sub_record.ott	:15:1: no parses of "{ </li:Ti//i IN 1..m/> , </l'j:T'j//j IN 1..n/> } <: { </li:Ti//i IN 1..m/> }":
+ott/examples/tapl/sum.ott	:12:10: MSE: "x1" is not a metavar or nonterm
+ott/examples/tapl/top.ott	: ok
+ott/examples/tapl/tuple.ott	:7:1: "i" used as an index but not declared as an indexvar
+ott/examples/tapl/tuples.ott	: ok
+ott/examples/tapl/unit.ott	: ok
+ott/examples/tapl/variant.ott	:11:1: "i" used as an index but not declared as an indexvar
+ott/examples/typst/lambda.ott	: ok
+haskell-report-ott/ott/expressions.ott	: ok

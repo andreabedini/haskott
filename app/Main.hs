@@ -17,6 +17,7 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import Graft.Range (rangeStart)
 import Haskott.Defns (processDefns)
+import Haskott.Diagnostics
 import Haskott.Load
 import Haskott.Rename
 import Haskott.Raw (rawDocument)
@@ -226,29 +227,30 @@ readSource file = do
       exitFailure
     Right t -> pure t
 
--- | The whole pipeline on one file: parse, check, process the definitions.
+-- | The whole pipeline on one file, reporting every problem (see
+-- "Haskott.Diagnostics").
 checkFile :: Bool -> FilePath -> IO Bool
 checkFile picky file = do
   src <- readSource file
-  case parseDocument src of
-    Left e -> reportError file src e >> pure False
-    Right tree
-      | render tree /= src -> putStrLn (file ++ ": PARSED BUT DOES NOT ROUND-TRIP") >> pure False
-      | otherwise -> case checkDocument (rawDocument tree) of
-          Left d -> reportDiagnostic file src d >> pure False
-          Right spec -> do
-            let policy = if picky then Picky else FirstIfSame []
-                (tree', tp, warnings) = spliceTerms policy (makeTermParser spec) tree
-                (_, diags) = processDefns policy tp spec
-            mapM_ (reportDiagnostic file src) diags
-            mapM_ (\d -> reportDiagnostic file src d {diagMessage = "warning: " <> diagMessage d}) warnings
-            if render tree' /= src
-              then putStrLn (file ++ ": TERMS DO NOT ROUND-TRIP") >> pure False
-              else if null diags then putStrLn (file ++ ": ok") >> pure True else pure False
+  let report = diagnose picky [(file, src)]
+      errors = [p | p <- reportProblems report, problemSeverity p == Error]
+  forM_ (reportProblems report) $ \p ->
+    let d = problemDiagnostic p
+        prefix = if problemSeverity p == Warning then "warning: " else ""
+     in reportDiagnostic (problemFile p) (problemText p) d {diagMessage = prefix <> diagMessage d}
+  unless (reportRulesChecked report) $
+    hPutStrLn stderr (file ++ ": the rules of the definitions are checked once the errors above are fixed")
+  let n = length errors
+  if not (reportRoundTrips report)
+    then putStrLn (file ++ ": TERMS DO NOT ROUND-TRIP") >> pure False
+    else
+      if n == 0
+        then putStrLn (file ++ ": ok") >> pure True
+        else putStrLn (file ++ ": " ++ show n ++ (if n == 1 then " error" else " errors")) >> pure False
 
 reportDiagnostic :: FilePath -> T.Text -> Diagnostic -> IO ()
 reportDiagnostic file src d =
-  let (l, c) = offsetPosition src (rangeStart (diagRange d))
+  let (l, c) = offsetPosition src (fromIntegral (rangeStart (diagRange d)))
    in hPutStrLn stderr (file ++ ":" ++ show l ++ ":" ++ show c ++ ": " ++ T.unpack (diagMessage d))
 
 reportError :: FilePath -> T.Text -> ParseError -> IO ()

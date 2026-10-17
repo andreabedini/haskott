@@ -112,7 +112,7 @@ renameRoot old new specFiles docFiles = do
 loadProblem :: Text -> LoadError -> Problem
 loadProblem prefix e = case e of
   LoadParse f src pe -> Problem (Just (f, src, parseErrorOffset pe)) (prefix <> parseErrorMessage pe)
-  LoadCheck f src d -> Problem (Just (f, src, rangeStart (diagRange d))) (prefix <> diagMessage d)
+  LoadCheck f src d -> Problem (Just (f, src, fromIntegral (rangeStart (diagRange d)))) (prefix <> diagMessage d)
 
 ------------------------------------------------------------------------
 -- What may be renamed
@@ -234,8 +234,8 @@ treeEdits ctx s tree = mconcat (map (visit [] Set.empty) (cursorChildren (rootCu
     tokenEdits anc owner c t =
       let k = tokenKind t
           v = tokenText t
-          start = rangeStart (cursorRange c)
-          end = rangeEnd (cursorRange c)
+          start = fromIntegral (rangeStart (cursorRange c))
+          end = fromIntegral (rangeEnd (cursorRange c))
           parent = case anc of (p : _) -> Just p; [] -> Nothing
           grand = case anc of (_ : g : _) -> Just g; _ -> Nothing
           one r = case r of
@@ -294,8 +294,8 @@ treeEdits ctx s tree = mconcat (map (visit [] Set.empty) (cursorChildren (rootCu
       let inner = [x | x <- cursorChildren c, cursorKind x /= K.RefOpen, cursorKind x /= K.RefClose]
           q = T.concat (map (renderElement . cursorGreen) inner)
           start = case inner of
-            (x : _) -> rangeStart (cursorRange x)
-            [] -> rangeEnd (cursorRange c)
+            (x : _) -> fromIntegral (rangeStart (cursorRange x))
+            [] -> fromIntegral (rangeEnd (cursorRange c))
        in case termEdits ctx "user_syntax" userSyntaxTransform q of
             Right es -> ([], map (shiftEdit start) es)
             Left m -> ([problemAt start m], [])
@@ -305,7 +305,7 @@ treeEdits ctx s tree = mconcat (map (visit [] Set.empty) (cursorChildren (rootCu
 -- written, but the user may want to look at them.
 mentions :: Ctx -> GreenNode Kind -> [(Int, Text)]
 mentions ctx tree =
-  [ (rangeStart (cursorRange c) + off, w)
+  [ (fromIntegral (rangeStart (cursorRange c)) + off, w)
   | c <- cursorDescendants (rootCursor (Node tree))
   , Token t <- [cursorGreen c]
   , isTarget c (tokenKind t)
@@ -414,7 +414,7 @@ termEdits ctx root transform q =
     flatten _ [] = []
     flatten off (el : rest) = case el of
       Token t -> (off, tokenKind t, tokenText t) : flatten (off + byteLength (tokenText t)) rest
-      Node n -> flatten off (nodeChildren n) ++ flatten (off + elementTextLength el) rest
+      Node n -> flatten off (nodeChildren n) ++ flatten (off + fromIntegral (elementTextLength el)) rest
 
 byteLength :: Text -> Int
 byteLength = B.length . TE.encodeUtf8

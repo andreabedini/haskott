@@ -93,9 +93,22 @@ not about.
   `cabal test rename-sweep` renames every root of every corpus file (and
   of the report with its document) to a fresh name and back, and
   checks that the files come back byte for byte.
+- Milestone 8, error recovery: `parseDocumentRecovering` goes on after a
+  parse error from the next line where an item, rule, production,
+  definition or function can start; what it skipped becomes an
+  `ErrorItem` node, so the tree still renders to the file.
+  `checkDocumentRecovering` records an error and drops only the
+  production, rule, declaration, definition or global check it is about.
+  The first error of both is Ott's, so the Ott-compatible paths still
+  stop there. `haskott check` (through `Haskott.Diagnostics`) reports
+  every problem of a file; the rule lines are checked once the grammar
+  has no errors, since otherwise most of their problems would be
+  consequences. `cabal test recovery` breaks the first productions of
+  every corpus file one at a time and checks that each costs only its own
+  line, and the corpus suite checks the first problem of every file
+  against `test/first-diagnostics.tsv`.
 - Not yet done: TeX output, Ott's remaining checks (bounds consistency at
-  output time among them), prover back ends, error-tolerant parsing, a
-  language server.
+  output time among them), prover back ends, a language server.
 
 haskott takes Ott's command line for the implemented part: `haskott -i
 FILE... -o OUT.typ [-typst_filter SRC DST] [-picky_multiple_parses BOOL]

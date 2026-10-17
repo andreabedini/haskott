@@ -8,7 +8,12 @@
 -- identifier lexer, convert each construct (resolving roots to their
 -- primary names, classifying elements, merging dot forms, resolving hom
 -- references, checking binding specifications), then check the result.
--- The first error stops the check, as in Ott.
+-- Ott stops at the first error. Here an error stops only the unit it is
+-- in: a production, rule, declaration, definition or global check is
+-- dropped (a metavariable declaration keeps its names) and checking goes
+-- on in the same order, so the first error recorded is Ott's.
+-- 'checkDocument' reports that one; 'checkDocumentRecovering' all of them,
+-- with the partial specification when the early steps succeeded.
 --
 -- Not implemented from Ott's step 10: the matching of each production of
 -- a subrule against the productions of its upper rule, context-rule
@@ -16,22 +21,74 @@
 -- analysis.
 module Haskott.Spec.Check
   ( checkDocument
+  , checkDocumentRecovering
   ) where
 
 import Control.Monad (forM, forM_, unless, when, zipWithM)
 import Data.List (find, nub, sort)
-import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
-import Graft.Range (TextRange)
+import Graft.Range (TextRange, rangeEnd, rangeStart)
 import qualified Haskott.Raw as R
 import Haskott.Spec
 
-type Check = Either Diagnostic
+-- | A check that can fail, and errors recovered from so far, most recent
+-- first.
+newtype Check a = Check {runCheck :: [Diagnostic] -> (Either Diagnostic a, [Diagnostic])}
+
+instance Functor Check where
+  fmap f (Check g) = Check $ \ds -> let (r, ds') = g ds in (fmap f r, ds')
+
+instance Applicative Check where
+  pure a = Check $ \ds -> (Right a, ds)
+  Check f <*> Check g = Check $ \ds -> case f ds of
+    (Left d, ds') -> (Left d, ds')
+    (Right h, ds') -> let (r, ds'') = g ds' in (fmap h r, ds'')
+
+instance Monad Check where
+  Check g >>= k = Check $ \ds -> case g ds of
+    (Left d, ds') -> (Left d, ds')
+    (Right a, ds') -> runCheck (k a) ds'
 
 err :: TextRange -> Text -> Check a
-err r m = Left (Diagnostic r m)
+err r m = Check $ \ds -> (Left (Diagnostic r m), ds)
+
+-- | Run a unit of checking; if it fails, record the error and go on.
+recoverMaybe :: Check a -> Check (Maybe a)
+recoverMaybe (Check g) = Check $ \ds -> case g ds of
+  (Left d, ds') -> (Right Nothing, d : ds')
+  (Right a, ds') -> (Right (Just a), ds')
+
+recoverWith :: a -> Check a -> Check a
+recoverWith def c = fromMaybe def <$> recoverMaybe c
+
+-- | Check each unit, dropping those that fail.
+recoverEach :: (a -> Check b) -> [a] -> Check [b]
+recoverEach f xs = catMaybes <$> mapM (recoverMaybe . f) xs
+
+checkDocument :: R.Document -> Either Diagnostic Spec
+checkDocument doc = case checkDocumentRecovering doc of
+  (Just spec, []) -> Right spec
+  (_, d : _) -> Left d
+  (Nothing, []) -> error "checkDocument: no specification and no error"
+
+-- | The specification, if the steps before the conversion of the
+-- constructs succeeded, and every error, in the order Ott would meet them.
+checkDocumentRecovering :: R.Document -> (Maybe Spec, [Diagnostic])
+checkDocumentRecovering doc = case runCheck (checkDocument' doc) [] of
+  (Right spec, ds) -> (Just spec, nubOrdered (reverse ds))
+  (Left d, ds) -> (Nothing, nubOrdered (reverse (d : ds)))
+  where
+    -- a judgement form is checked as a production of its class's rule and
+    -- as a definition, and its errors would come twice
+    nubOrdered = go Set.empty
+    go _ [] = []
+    go seen (d : more)
+      | key d `Set.member` seen = go seen more
+      | otherwise = d : go (Set.insert (key d) seen) more
+    key d = (rangeStart (diagRange d), rangeEnd (diagRange d), diagMessage d)
 
 quote :: Text -> Text
 quote s = "\"" <> s <> "\""
@@ -52,8 +109,8 @@ data XRule = XRule
 
 data Class = ClassDefn R.DefnClass | ClassFun R.FunClass
 
-checkDocument :: R.Document -> Check Spec
-checkDocument doc = do
+checkDocument' :: R.Document -> Check Spec
+checkDocument' doc = do
   let mds = [d | R.ItemMetavar d <- doc]
       userRules = [xruleOf r | R.ItemGrammar rs <- doc, r <- rs]
       srs = concat [s | R.ItemSubrules s <- doc]
@@ -110,14 +167,14 @@ checkDocument doc = do
 
   -- 9: the preliminary syntax definition
   (subrules, srd) <- cdSubrules ctx srs
-  rules <- mapM (cdRule ctx judgementRoots srsLowers) allRules
-  metavars <- mapM (cdMetavardefn ctx) mds
-  contextrules <- mapM (cdContextrule ctx) crs
-  substitutions <- mapM (cdSubst ctx subrules) sbs
-  freevars <- mapM (cdFreevar ctx subrules) fvs
-  embeds' <- mapM cdEmbed embeds
+  rules <- recoverEach (cdRule ctx judgementRoots srsLowers) allRules
+  metavars <- forM mds $ \md -> recoverWith (fallbackMetavar md) (cdMetavardefn ctx md)
+  contextrules <- recoverEach (cdContextrule ctx) crs
+  substitutions <- recoverEach (cdSubst ctx subrules) sbs
+  freevars <- recoverEach (cdFreevar ctx subrules) fvs
+  embeds' <- recoverEach cdEmbed embeds
   let allProdNames = [prodName p | r <- rules, p <- ruleProds r]
-  parsing <- mapM (cdParsingAnnotation allProdNames) pas
+  parsing <- recoverEach (cdParsingAnnotation allProdNames) pas
   classItems <- forM classes'' $ \c -> case c of
     ClassDefn dc -> ClassReln <$> cdDefnClass ctx dc
     ClassFun fc -> ClassFuns <$> cdFunClass ctx userRules' fc
@@ -831,7 +888,7 @@ cdRule c judgementRoots srsLowers r = do
         | otherwise = expandIcho homs0
       phantom = isJust (lookup "phantom" homs) || xName r == "formula"
   names <- forM (xNames r) $ \(n, hs) -> (,) n <$> mapM (cdHom HuRoot c []) hs
-  prods <- mapM (cdProd c (xName r) (xPrefix r)) (xProds r)
+  prods <- recoverEach (cdProd c (xName r) (xPrefix r)) (xProds r)
   pure
     Rule
       { ruleName = xName r
@@ -846,6 +903,20 @@ cdRule c judgementRoots srsLowers r = do
       , ruleCategories = xCategories r
       , ruleRange = xRange r
       }
+
+-- | A metavariable declaration whose homs did not check keeps its names,
+-- so that the rest of the specification still finds it.
+fallbackMetavar :: R.MetavarDefn -> MetavarDefn
+fallbackMetavar md =
+  MetavarDefn
+    { mvdName = primaryMvdName md
+    , mvdNames = [(n, []) | (n, _) <- R.mvdNames md]
+    , mvdHoms = []
+    , mvdIndexvar = R.mvdIndexvar md
+    , mvdLocallyNameless = False
+    , mvdPhantom = False
+    , mvdRange = R.mvdRange md
+    }
 
 cdMetavardefn :: Ctx -> R.MetavarDefn -> Check MetavarDefn
 cdMetavardefn c md = do
@@ -953,7 +1024,7 @@ cdParsingAnnotation allProdNames pa = do
 cdDefnClass :: Ctx -> R.DefnClass -> Check DefnClass
 cdDefnClass c dc = do
   homs <- mapM (cdHom HuDeadcode c []) [] -- the class homs are checked by the back ends (Hu_defnclass)
-  defns <- forM (R.dcDefns dc) $ \d -> do
+  defns <- flip recoverEach (R.dcDefns dc) $ \d -> do
     es <- cdElements c (R.dRange d) (R.dElements d)
     dhoms <- mapM (cdHom HuDefn c es) (R.dHoms d)
     pure (Defn (R.dName d) (R.dWrapper d) es (R.dCategories d) dhoms (R.dBody d) (R.dRange d))
@@ -967,7 +1038,7 @@ cdDefnClass c dc = do
 
 cdFunClass :: Ctx -> [XRule] -> R.FunClass -> Check FunClass
 cdFunClass c rules fc = do
-  defns <- forM (R.fcDefns fc) $ \fd -> do
+  defns <- flip recoverEach (R.fcDefns fc) $ \fd -> do
     es <- cdElements c (R.fdRange fd) (R.fdElements fd)
     homs <- mapM (cdHom HuFundefn c es) (R.fdHoms fd)
     let r = find (\x -> R.fdResult fd `elem` map fst (xNames x)) rules
@@ -992,19 +1063,20 @@ cdFunClass c rules fc = do
 -- of the lower rule is printed with the top rule's production.
 subrulePromotion :: [Subrule] -> SubruleData -> [Rule] -> Check [(Text, (Text, [(Text, Text)]))]
 subrulePromotion srs srd rules = do
-  forM_ srs $ \sr -> matching (srLower sr) (srUpper sr)
+  forM_ srs $ \sr -> recoverWith [] (matching (srLower sr) (srUpper sr))
   forM srs $ \sr -> do
-    pps <- matching (srLower sr) (srTop sr)
+    pps <- recoverWith [] (matching (srLower sr) (srTop sr))
     pure (srLower sr, (srTop sr, pps))
   where
     graph = srdGraph srd
-    ruleOf n = fromMaybe (error ("subrulePromotion: no rule " ++ T.unpack n)) (find ((== n) . ruleName) rules)
-    matching l u = do
-      let rl = ruleOf l
-          ru = ruleOf u
-      forM (ruleProds rl) $ \pl -> case [pu | pu <- ruleProds ru, subelements (prodElements pl) (prodElements pu)] of
-        [] -> err (prodRange pl) ("subrule check failed: production " <> prodName pl <> " of rule " <> l <> " cannot be matched in rule " <> u)
-        pu : _ -> pure (prodName pl, prodName pu)
+    -- a rule that did not check is not there to match against
+    ruleOf n = find ((== n) . ruleName) rules
+    matching l u = case (ruleOf l, ruleOf u) of
+      (Just rl, Just ru) ->
+        forM (ruleProds rl) $ \pl -> case [pu | pu <- ruleProds ru, subelements (prodElements pl) (prodElements pu)] of
+          [] -> err (prodRange pl) ("subrule check failed: production " <> prodName pl <> " of rule " <> l <> " cannot be matched in rule " <> u)
+          pu : _ -> pure (prodName pl, prodName pu)
+      _ -> pure []
     subelements as bs = length as == length bs && and (zipWith subelement as bs)
     subelement el eu = case (el, eu) of
       (Nonterm pl _ _, Nonterm pu _ _) -> pl == pu || (pl, pu) `elem` graph
@@ -1016,15 +1088,15 @@ subrulePromotion srs srd rules = do
 checkSpec :: [Subrule] -> [Rule] -> [(Text, Text)] -> Check ()
 checkSpec srs rules auxfns = do
   let allProdNames = [(prodName p, prodRange p) | r <- rules, p <- ruleProds r]
-  case firstDuplicateBy fst allProdNames of
+  recoverWith () $ case firstDuplicateBy fst allProdNames of
     Just (pn, l) -> err l ("production name " <> quote pn <> " is used for multiple productions")
     Nothing -> pure ()
   forM_ rules $ \r -> do
-    case firstDuplicateBy prodName (ruleProds r) of
+    recoverWith () $ case firstDuplicateBy prodName (ruleProds r) of
       Just p -> err (prodRange p) ("Repeated production name " <> quote (prodName p))
       Nothing -> pure ()
     unless (ruleMeta r) $
-      forM_ (ruleProds r) $ \p ->
+      forM_ (ruleProds r) $ \p -> recoverWith () $
         if prodMeta p
           then unless (null (prodBindspecs p)) $ err (prodRange p) "nonempty bindspec in a meta or sugar production"
           else do
@@ -1033,10 +1105,10 @@ checkSpec srs rules auxfns = do
                 should = sort [f | (f, n) <- auxfns, n == ruleName r]
             when (here /= should) $
               err (prodRange p) ("auxiliaries are not uniquely defined in production " <> prodName p)
-  case firstDuplicateBy ruleName rules of
+  recoverWith () $ case firstDuplicateBy ruleName rules of
     Just r -> err (ruleRange r) ("repeated rule name " <> ruleName r)
     Nothing -> pure ()
-  forM_ rules $ \r ->
+  forM_ rules $ \r -> recoverWith () $
     when (ruleSemiMeta r && any (\s -> srLower s == ruleName r || srUpper s == ruleName r) srs) $
       err (ruleRange r) ("cannot have semi-meta rule " <> quote (ruleName r) <> " in a subrule relationship")
   where

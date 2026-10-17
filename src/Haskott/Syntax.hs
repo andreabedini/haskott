@@ -12,6 +12,7 @@ module Haskott.Syntax
 
     -- * Parsing
   , parseDocument
+  , parseDocumentRecovering
   , ParseError (..)
   , parseErrorPosition
 

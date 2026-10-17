@@ -22,7 +22,10 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
+import Graft.Range (rangeStart)
+import Haskott.Defns (processDefns)
 import Haskott.Raw (rawDocument)
+import Haskott.Spec (Diagnostic (..))
 import Haskott.Spec.Check (checkDocument)
 import Haskott.Syntax
 import Haskott.Term.Parse (ParsePolicy (..), makeTermParser)
@@ -63,7 +66,19 @@ main = do
   let failures = [f | Just f <- results]
   putStrLn (show (length entries) ++ " files, " ++ show (length failures) ++ " disagreements")
   mapM_ putStrLn failures
-  unless (null failures) exitFailure
+  -- the first problem of each file is the one recorded before error
+  -- recovery existed, which is Ott's first
+  golden <- TIO.readFile "test/first-diagnostics.tsv"
+  firsts <- forM [(T.unpack a, T.drop 1 b) | l <- T.lines golden, not ("#" `T.isPrefixOf` l), let (a, b) = T.breakOn "\t" l] $ \(rel, expected) -> do
+    bytes <- B.readFile (resolve rel)
+    let actual = case TE.decodeUtf8' bytes of
+          Left e -> T.pack (": not valid UTF-8: " ++ show e)
+          Right src -> firstProblem src
+    pure (if actual == expected then Nothing else Just (rel ++ ": first problem changed\n  was: " ++ T.unpack expected ++ "\n  now: " ++ T.unpack actual))
+  let firstFailures = [f | Just f <- firsts]
+  putStrLn (show (length firsts) ++ " first problems, " ++ show (length firstFailures) ++ " changed")
+  mapM_ putStrLn firstFailures
+  unless (null failures && null firstFailures) exitFailure
   where
     expectation cls
       | cls == "parse-error" = ShouldFail
@@ -85,3 +100,23 @@ check rel expected src = case (expected, parseDocument src) of
            in if render tree' /= src then Just (rel ++ ": does not round-trip after the term splice") else Nothing
   (ShouldFail, Right _) -> Just (rel ++ ": accepted, Ott rejects")
   (ShouldFail, Left _) -> Nothing
+
+-- | The first line @haskott check@ prints: the first parse error, else the
+-- first check error, else the first problem of the definitions or
+-- quotations, else ok.
+firstProblem :: T.Text -> T.Text
+firstProblem src = case parseDocument src of
+  Left e -> at (parseErrorOffset e) (parseErrorMessage e)
+  Right tree -> case checkDocument (rawDocument tree) of
+    Left d -> diag d
+    Right spec ->
+      let (_, tp, warnings) = spliceTerms (FirstIfSame []) (makeTermParser spec) tree
+          (_, diags) = processDefns (FirstIfSame []) tp spec
+       in case map diag diags ++ map (\d -> diag d {diagMessage = "warning: " <> diagMessage d}) warnings of
+            (l : _) -> l
+            [] -> ": ok"
+  where
+    diag d = at (fromIntegral (rangeStart (diagRange d))) (diagMessage d)
+    at off m =
+      let (l, c) = parseErrorPosition src (ParseError off T.empty)
+       in T.pack (":" ++ show l ++ ":" ++ show c ++ ": ") <> T.takeWhile (/= '\n') m
