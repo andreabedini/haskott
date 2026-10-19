@@ -61,6 +61,7 @@ module Haskott.Prover.Pp
   , listAppend
   , extractQuantifiedProofAssistantVars
   , makeNameSymterm
+  , makeNameElements
   , makeDepSymterm
   , ppTrue
   , ppFalse
