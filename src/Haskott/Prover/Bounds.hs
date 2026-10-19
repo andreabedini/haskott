@@ -10,6 +10,7 @@ module Haskott.Prover.Bounds
   ( boundExtraction
   , boundsConsistency
   , sieProject
+  , ntOrMvOfSymterms
   ) where
 
 import Data.Text (Text)
@@ -46,6 +47,11 @@ ntOrMvOfSymterm be st = case st of
   StNonterm _ (ntr, sf) -> [(((Ntr ntr, sf), Nothing), findBounds be sf)]
   StNontermSub ntrl ntrt (ntr, sf) -> [(((Ntr ntr, sf), Just (ntrl, ntrt)), findBounds be sf)]
   StUninterpreted _ _ -> []
+
+-- | Ott's @nt_or_mv_of_symterms@: the nonterminals and metavariables of
+-- terms, with their subrule data and bounds.
+ntOrMvOfSymterms :: [Symterm] -> [((NtMv, SubntrData), Maybe Bound)]
+ntOrMvOfSymterms = concatMap (ntOrMvOfSymterm [])
 
 ntOrMvOfSte :: [Bound] -> Ste -> [Item]
 ntOrMvOfSte be ste = case ste of

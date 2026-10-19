@@ -36,6 +36,9 @@ import Haskott.Prover.Context
 import Haskott.Prover.CoqInduct
 import Haskott.Prover.Defns
 import Haskott.Prover.Dependency
+import Haskott.Prover.LocallyNameless
+import Haskott.Term.Grammar (nonterminalCount)
+import Haskott.Term.Parse (makeTermParser, termGrammar)
 import Haskott.Prover.ExpandLists
 import Haskott.Prover.Pp
 import Haskott.Prover.Subrules
@@ -333,7 +336,23 @@ proverOutputs prepared job vertex0 = do
       Right (s, p, mvr, ntr) -> Right (s, p, renameDeps mvr ntr deps0, [(f, renameEntry mvr ntr e) | (f, e) <- structure0])
     _ -> Right (pjSpec job, pjProcessed job, deps0, structure0)
   let env = (makeEnv t opts deps (prAuxfnTypes prepared) (pjQuotation job) spec) {envParse = pjParse job, envLoc = locText (pjInputs job)}
-  if pjMerge job then mergedOutput env processed structure job vertex0 else structuredOutput env processed structure job vertex0
+  if pjMerge job
+    then mergedOutput env processed structure job vertex0
+    else
+      if requireLocallyNameless spec
+        then case pjOutputs job of
+          [(o, _)] -> do
+            let ln =
+                  LnJob
+                    { lnSources = T.unwords [T.pack (inPath i) | i <- pjInputs job]
+                    , lnProcessed = processed
+                    , lnGrammarNonterminals = nonterminalCount . termGrammar . makeTermParser
+                    , lnEmbed = ppEmbed
+                    }
+            (txt, st) <- runP (initialPState vertex0) (lnOutput env ln)
+            pure ([(o, txt)], psVertex st)
+          _ -> Left "must specify only one output file in the Coq locally-nameless backend.\n"
+        else structuredOutput env processed structure job vertex0
 
 -- | Ott's @pp_systemdefn@, used with @-merge true@: one file, the
 -- metavariables, rules, functions, embeds and definitions each together.

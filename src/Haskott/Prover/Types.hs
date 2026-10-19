@@ -62,7 +62,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Haskott.Spec
-import Haskott.Term.Symterm (Symterm)
+import Haskott.Term.Symterm (Ste, Symterm)
 
 data Target = Coq | Isa | Hol | Lem | Caml
   deriving (Eq, Ord, Show)
@@ -127,6 +127,11 @@ data PState = PState
   -- printed so far
   , psCounters :: M.Map Text (M.Map Text Int)
   -- ^ the split counters of the printers of functions, by printer
+  , psCoqLocallyNameless :: Bool
+  -- ^ Ott's @coq_locally_nameless@: printing for the locally nameless
+  -- back end
+  , psOpeningVars :: [Ste]
+  -- ^ @Ln_transform.opening_vars@: the variables a term is opened with
   }
 
 initialPState :: Int -> PState
@@ -143,6 +148,8 @@ initialPState vertex =
     , psLibrary = ("", [])
     , psCoqBuffer = ""
     , psCounters = M.empty
+    , psCoqLocallyNameless = False
+    , psOpeningVars = []
     }
 
 -- | Printing, which fails as Ott does when it finds a problem only at

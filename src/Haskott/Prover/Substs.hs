@@ -720,6 +720,7 @@ ppFreevarRule :: Env -> Freevar -> [Text] -> Rule -> P [IntFunc]
 ppFreevarRule env fv domain r = do
   let flag = isaListNameFlag r
   fvProds <- mapM (ppFreevarProd env fv domain flag (ruleName r)) (nonMetaProds r)
+  ln <- psCoqLocallyNameless <$> get
   let clauses = [c | (_, c, _) <- fvProds]
       funcs = concat [f | (_, _, f) <- fvProds]
       dep = concat [d | (d, _, _) <- fvProds]
@@ -730,7 +731,7 @@ ppFreevarRule env fv domain r = do
         Coq ->
           ( fvName' (fvName fv) (ruleName r) <> " (" <> ppNonterm env freshVar <> ":" <> tyR <> ") "
           , ""
-          , ": list " <> tyThat <> " :=\n  match " <> ppNonterm env freshVar <> " with\n"
+          , (if ln then ": vars" else ": list " <> tyThat) <> " :=\n  match " <> ppNonterm env freshVar <> " with\n"
           )
         Isa -> (fvName' (fvName fv) (ppNontermroot env (ruleName r)) <> " :: \"" <> tyR <> " => " <> tyThat <> (if hasIsaSetHom fv then " set" else " list") <> "\"\n", "", "")
         Hol -> ("", "", "")
@@ -751,10 +752,11 @@ ppFreevarProd env fv domain flag rnn p = do
   (de, _) <- boundExtraction' env [lhsSt]
   lhs <- ppSymterm env [] de lhsSt
   resetCounter "fv_list_split_inprod"
+  ln <- psCoqLocallyNameless <$> get
   let singleton thingS =
         let rhs
               | isIsa env && hasIsaSetHom fv = "{" <> thingS <> "}"
-              | isCoq env = "(cons " <> thingS <> " nil)"
+              | isCoq env = if ln then "{{" <> thingS <> "}}" else "(cons " <> thingS <> " nil)"
               | otherwise = "[" <> thingS <> "]"
          in pure ([], (prodName p, lhs, rhs), [])
   case prodElements p of
@@ -773,12 +775,12 @@ ppFreevarProd env fv domain flag rnn p = do
           rhs = case elements of
             []
               | isIsa env && hasIsaSetHom fv -> "{}"
-              | isCoq env -> "nil"
+              | isCoq env -> if ln then "{}" else "nil"
               | otherwise -> "[]"
             _ -> case envTarget env of
               Isa | hasIsaSetHom fv -> T.intercalate " \\<union> " elements
               Hol -> T.intercalate " ++ " elements
-              Coq -> insertAppend elements
+              Coq -> if ln then T.intercalate " \\u " elements else insertAppend elements
               _ -> T.intercalate (listAppend env) elements
       pure (deps, (prodName p, lhs, rhs), funcs)
 
@@ -869,8 +871,9 @@ ppFvListBody env fv domain rnn p sie de flag bound els = do
       Lem -> pure (Just ("(List.concat (List.map (fun " <> pat <> " -> " <> T.intercalate " ++ " bodyElements <> ") " <> cid <> "))"), funcs)
       Coq
         | optCoqExpandLists opts -> liftP (failP "-coq_expand_list_types true is not supported")
-        | length (splitParensCommas pat) == 1 ->
-            pure (Just ("(flat_map (fun (" <> pat <> ":" <> de1CoqTypeOfPattern de1i <> ") => " <> T.intercalate " ++ " bodyElements <> ") " <> cid <> ")"), funcs)
+        | length (splitParensCommas pat) == 1 -> do
+            ln <- liftP (psCoqLocallyNameless <$> get)
+            pure (Just ("(" <> (if ln then "union_map" else "flat_map") <> " (fun (" <> pat <> ":" <> de1CoqTypeOfPattern de1i <> ") => " <> T.intercalate " ++ " bodyElements <> ") " <> cid <> ")"), funcs)
         | otherwise ->
             pure (Just ("(flat_map (fun (pat_:" <> de1CoqTypeOfPattern de1i <> ") => match pat_ with " <> pat <> " => " <> T.intercalate " ++ " bodyElements <> " end) " <> cid <> ")"), funcs)
 

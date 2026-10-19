@@ -42,6 +42,7 @@ library
         Haskott.Prover.Defns
         Haskott.Prover.Dependency
         Haskott.Prover.ExpandLists
+        Haskott.Prover.LocallyNameless
         Haskott.Prover.Pp
         Haskott.Prover.Subrules
         Haskott.Prover.Substs
