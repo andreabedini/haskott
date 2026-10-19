@@ -421,14 +421,13 @@ involvesRoot ctx w = case renameLexed ctx Nothing w of
 
 -- | The identifiers a hom reference under a node can resolve to: the
 -- elements of a production, judgement form or function, or the names of
--- a declaration, outside its homs. The node is looked at on its own, so
--- that looking up from its tokens stops at it (no such node is inside a
--- hom) instead of rebuilding ancestors that a renaming walk has edited.
+-- a declaration, outside its homs (no such node is inside a hom, so
+-- looking up from its tokens past it finds none).
 ownerIdents :: C -> Set.Set Text
 ownerIdents c =
   Set.fromList
     [ Green.text t
-    | d <- Cursor.descendants (Cursor.fromGreen (Cursor.green c))
+    | d <- Cursor.descendants c
     , Token t <- [Cursor.green d]
     , Green.tokenKind t `elem` [K.Element, K.QuotedElement] || (Green.tokenKind t == K.Ident && fmap Cursor.kind (Cursor.parent d) == Just K.Name)
     , K.Hom `notElem` map Cursor.kind (Cursor.ancestors d)
