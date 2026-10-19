@@ -31,7 +31,6 @@ module Haskott.Graph
 
 import qualified Data.IntMap.Strict as IM
 import qualified Data.IntSet as IS
-import Data.List (foldl')
 import qualified Data.Map.Strict as M
 
 -- | A vertex: its tag, unique in the run, and its label.
@@ -215,7 +214,7 @@ topologicalFold f g acc0 =
                 (succs g x)
          in (vs', es', deg')
       (vsA, esA, degA) = foldl' step (IM.empty, IM.empty, IM.empty) (vertices g)
-      initial = [i | i <- [0 .. n - 1], IM.findWithDefault 0 i degA == 0]
+      initial = [i | i <- [0 .. n - 1], IM.findWithDefault (0 :: Int) i degA == 0]
       walk queue deg acc = case queue of
         [] -> acc
         i : rest ->

@@ -32,6 +32,7 @@ module Haskott.Raw
   , FunClass (..)
   , FunDefn (..)
   , rawDocument
+  , mergeFragments
   ) where
 
 import Data.Text (Text)
@@ -613,3 +614,55 @@ headOr :: [Text] -> Text
 headOr xs = case xs of
   (x : _) -> x
   [] -> T.empty
+
+------------------------------------------------------------------------
+-- Merging fragments
+
+-- | Ott's @-merge true@ (@merge_language_fragments@): the grammar rules of
+-- the same name are one rule, with the attributes of the first and the
+-- productions of all; so are the definition classes, and within them the
+-- definitions (whose rules are concatenated) and the functions (whose
+-- clauses are). The merged rules take the place of the first grammar
+-- item and the merged classes that of the first class.
+mergeFragments :: Document -> Document
+mergeFragments doc =
+  let rules = [r | ItemGrammar rs <- doc, r <- rs]
+      classes = [c | it <- doc, c <- classOf it]
+      classOf it = case it of
+        ItemDefns dc -> [Left dc]
+        ItemFuns fc -> [Right fc]
+        _ -> []
+      ruleKey r = case ruleNames r of
+        ((n, _) : _) -> n
+        [] -> T.empty
+      mergedRules = map (foldr1 (\r r' -> r {ruleProds = ruleProds r ++ ruleProds r'})) (collect ruleKey rules)
+      classKey c = case c of
+        Left dc -> ("rel", dcName dc)
+        Right fc -> ("fun", fcName fc)
+      appendClass a b = case (a, b) of
+        (Left dc, Left dc') -> Left dc {dcDefns = dcDefns dc ++ dcDefns dc'}
+        (Right fc, Right fc') -> Right fc {fcDefns = fcDefns fc ++ fcDefns fc'}
+        _ -> error "Haskott.Raw: merge_raw_fun_or_reln_defnclasses 2"
+      mergeInside c = case c of
+        Left dc -> ItemDefns dc {dcDefns = map (foldr1 (\d d' -> d {dBody = dBody d ++ dBody d'})) (collect dName (dcDefns dc))}
+        Right fc -> ItemFuns fc {fcDefns = map (foldr1 (\f f' -> f {fdClauses = fdClauses f ++ fdClauses f'})) (collect fdName (fcDefns fc))}
+      mergedClasses = map (mergeInside . foldr1 appendClass) (collect classKey classes)
+      go seenG seenC items = case items of
+        [] -> []
+        ItemGrammar _ : more
+          | seenG -> go seenG seenC more
+          | otherwise -> ItemGrammar mergedRules : go True seenC more
+        it : more
+          | not (null (classOf it)) ->
+              if seenC then go seenG seenC more else mergedClasses ++ go seenG True more
+          | otherwise -> it : go seenG seenC more
+   in go False False doc
+
+-- | Ott's @collect@: the items grouped by key, each group in the order
+-- of its last member.
+collect :: Eq k => (a -> k) -> [a] -> [[a]]
+collect key = map snd . foldl step []
+  where
+    step acc x = case lookup (key x) acc of
+      Just ys -> [(k, v) | (k, v) <- acc, k /= key x] ++ [(key x, ys ++ [x])]
+      Nothing -> acc ++ [(key x, [x])]

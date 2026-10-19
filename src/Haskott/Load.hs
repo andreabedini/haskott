@@ -8,6 +8,7 @@ module Haskott.Load
   , Loaded (..)
   , LoadError (..)
   , loadSpec
+  , loadSpecWith
   , Checked (..)
   , loadSpecRecovering
   , locateDiagnostic
@@ -22,7 +23,7 @@ import qualified Data.Text.Encoding as TE
 import Graft
 import qualified Graft.Green as Green
 import qualified Graft.Range as Range
-import Haskott.Raw (rawDocument)
+import Haskott.Raw (mergeFragments, rawDocument)
 import Haskott.Spec (Diagnostic (..), Spec)
 import Haskott.Spec.Check (checkDocument, checkDocumentRecovering)
 import Haskott.Syntax (ParseError (..), parseDocument, parseDocumentRecovering)
@@ -47,11 +48,17 @@ data LoadError
   -- ^ with the diagnostic's range in its own file
 
 loadSpec :: [(FilePath, Text)] -> Either LoadError Loaded
-loadSpec files = do
+loadSpec = loadSpecWith False
+
+-- | Loading, merging the fragments of the files first (Ott's @-merge
+-- true@) when asked.
+loadSpecWith :: Bool -> [(FilePath, Text)] -> Either LoadError Loaded
+loadSpecWith merge files = do
   trees <- mapM (\(f, src) -> either (Left . LoadParse f src) (\t -> Right (f, src, t)) (parseDocument src)) files
   let bases = scanl (+) 0 [B.length (TE.encodeUtf8 src) | (_, src, _) <- trees]
       sources = [Source f src t b | ((f, src, t), b) <- zip trees bases]
-      raw = concat [rawDocument (shiftTree (srcBase s) (srcTree s)) | s <- sources]
+      raw0 = concat [rawDocument (shiftTree (srcBase s) (srcTree s)) | s <- sources]
+      raw = if merge then mergeFragments raw0 else raw0
   case checkDocument raw of
     Left d -> let (f, src, d') = locateDiagnostic sources d in Left (LoadCheck f src d')
     Right spec -> Right (Loaded sources spec)

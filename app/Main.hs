@@ -18,7 +18,9 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import qualified Graft.Range as Range
-import Haskott.Defns (processDefns)
+import Haskott.Defns
+import Haskott.Prover.Bounds (boundsConsistency)
+import Haskott.Term.Symterm (Symterm)
 import Haskott.Diagnostics
 import Haskott.Load
 import Haskott.Rename
@@ -119,15 +121,18 @@ data Options = Options
   -- ^ the inputs (True) and outputs in command-line order
   , oProver :: ProverOptions
   , oFilters :: [(Dialect, FilePath, FilePath)]
+  , oProverFilters :: [(Target, FilePath, FilePath)]
   , oPicky :: Bool
+  , oMerge :: Bool
   , oTex :: TexOptions
   }
 
 parseOptions :: [String] -> Either String Options
-parseOptions = go (Options [] [] [] defaultProverOptions [] False (defaultTexOptions Latex))
+parseOptions = go (Options [] [] [] defaultProverOptions [] [] False False (defaultTexOptions Latex))
   where
     go o args = case args of
-      [] -> Right o {oInputs = reverse (oInputs o), oOutputs = reverse (oOutputs o), oFileArgs = reverse (oFileArgs o), oFilters = reverse (oFilters o)}
+      [] -> Right o {oInputs = reverse (oInputs o), oOutputs = reverse (oOutputs o), oFileArgs = reverse (oFileArgs o), oFilters = reverse (oFilters o), oProverFilters = reverse (oProverFilters o)}
+      flag : s : d : rest | Just t <- lookup flag proverFilterFlags -> go o {oProverFilters = (t, s, d) : oProverFilters o} rest
       "-i" : f : rest -> go o {oInputs = f : oInputs o, oFileArgs = (True, f) : oFileArgs o} rest
       "-o" : f : rest -> go o {oOutputs = f : oOutputs o, oFileArgs = (False, f) : oFileArgs o} rest
       "-coq_avoid" : n : rest -> go (prover o (\p -> p {optCoqAvoid = read n})) rest
@@ -144,6 +149,7 @@ parseOptions = go (Options [] [] [] defaultProverOptions [] False (defaultTexOpt
       "-tex_filter" : s : d : rest -> go o {oFilters = (Latex, s, d) : oFilters o} rest
       "-typst_filter" : s : d : rest -> go o {oFilters = (Typst, s, d) : oFilters o} rest
       "-picky_multiple_parses" : b : rest -> bool b >>= \v -> go o {oPicky = v} rest
+      "-merge" : b : rest -> bool b >>= \v -> go o {oMerge = v} rest
       "-tex_name_prefix" : p : rest -> go (tex o (\t -> t {optPrefix = T.pack p})) rest
       "-tex_show_meta" : b : rest -> bool b >>= \v -> go (tex o (\t -> t {optShowMeta = v})) rest
       "-tex_show_categories" : b : rest -> bool b >>= \v -> go (tex o (\t -> t {optShowCategories = v})) rest
@@ -159,6 +165,7 @@ parseOptions = go (Options [] [] [] defaultProverOptions [] False (defaultTexOpt
       _ -> Left ("expected true or false, found " ++ show b)
     tex o f = o {oTex = f (oTex o)}
     prover o f = o {oProver = f (oProver o)}
+    proverFilterFlags = [("-coq_filter", Coq), ("-isa_filter", Isa), ("-hol_filter", Hol), ("-lem_filter", Lem), ("-ocaml_filter", Caml)]
 
 -- | The dialect an output file is written in, by its extension.
 outputDialect :: FilePath -> Maybe Dialect
@@ -180,7 +187,7 @@ ottMain args = do
   -- every file is parsed into its own tree and the raw documents are
   -- checked as one, as Ott does with several -i options
   sourcesText <- forM (oInputs opts) $ \f -> (,) f <$> readSource f
-  loaded <- case loadSpec sourcesText of
+  loaded <- case loadSpecWith (oMerge opts) sourcesText of
     Left e -> reportLoadError e >> exitFailure
     Right l -> pure l
   let spec = ldSpec loaded
@@ -202,11 +209,19 @@ ottMain args = do
       -- stage two on every tree, for its warnings about quotations
       warnings = concat [map (shiftDiag (srcBase s)) ws | s <- files, let (_, _, ws) = spliceTerms policy tp (srcTree s)]
   mapM_ report diags
+  -- Ott stops at some problems of the definitions before any output
+  when (any isFatalDiagnostic diags) exitFailure
   mapM_ (\d -> report d {diagMessage = "warning: " <> diagMessage d}) warnings
+  -- Ott extracts the bounds of every rule and clause while printing TeX,
+  -- and stops at inconsistent ones
+  unless (null outputs) $
+    case mapM_ boundsConsistency (ruleTerms processed) of
+      Left m -> hPutStrLn stderr ("Error in generating output:\n" ++ T.unpack m ++ "\n") >> exitFailure
+      Right () -> pure ()
   forM_ outputs $ \(d, o) -> writeText o (texDocument (envOf d) sources processed)
   unless (null proverTargets) $ do
     let inputs = [Input (srcPath s) (srcText s) (srcBase s) | s <- files]
-    prepared <- case prepareProvers proverTargets inputs spec (nonterminalCount (termGrammar tp)) of
+    prepared <- case prepareProvers (oMerge opts) proverTargets inputs spec (nonterminalCount (termGrammar tp)) of
       Left d -> report d >> exitFailure
       Right p -> pure p
     let job t =
@@ -219,6 +234,7 @@ ottMain args = do
             , pjQuotation = quotationParser policy tp
             , pjParse = \root txt -> parseTerms tp root False txt
             , pjOutputs = outputsOf t (oFileArgs opts)
+            , pjMerge = oMerge opts
             }
         run vertex t = case proverOutputs prepared (job t) vertex of
           Left m -> hPutStrLn stderr ("Error: " ++ T.unpack m) >> exitFailure
@@ -232,11 +248,27 @@ ottMain args = do
     case filterDocument (envOf d) src of
       Left m -> hPutStrLn stderr (s ++ ": " ++ T.unpack m) >> exitFailure
       Right out -> writeText dst out
+  -- Ott filters with the TeX dialects first, then the provers in this order
+  forM_ [f | t <- [Coq, Isa, Hol, Lem, Caml], f@(t', _, _) <- oProverFilters opts, t' == t] $ \(t, s, dst) -> do
+    src <- readSource s
+    case filteredDocument src >>= proverFilter t (oProver opts) spec (quotationParser policy tp) of
+      Left m -> hPutStrLn stderr (s ++ ": " ++ T.unpack m) >> exitFailure
+      Right out -> writeText dst out
   let counts = countsString processed
   unless (T.null counts) (TIO.putStr counts)
   unless (null diags) exitFailure
   where
     shiftDiag base d = d {diagRange = shiftRange base (diagRange d)}
+
+-- | The terms of each rule and clause, in Ott's printing order.
+ruleTerms :: Processed -> [[Symterm]]
+ruleTerms processed =
+  concat
+    [ case it of
+        PReln pc -> [druleConclusion dr : map snd (drulePremises dr) | d <- pcDefns pc, ItemRule dr <- pdRules d]
+        PFuns pfc -> [[fcLhs fc, fcRhs fc] | f <- pfcFuns pfc, fc <- pfClauses f]
+    | it <- processedItems processed
+    ]
 
 -- | Ott's @compute_output@: each output of a target with the inputs since
 -- the previous one, most recent first.

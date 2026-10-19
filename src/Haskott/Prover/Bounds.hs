@@ -8,10 +8,10 @@
 -- projection from that list.
 module Haskott.Prover.Bounds
   ( boundExtraction
+  , boundsConsistency
   , sieProject
   ) where
 
-import Data.List (foldl')
 import Data.Text (Text)
 import qualified Data.Text as T
 import Haskott.Prover.Pp
@@ -37,8 +37,8 @@ findBounds be suff = case [i | si <- suff, Just i <- [index si]] of
       SiIndexShift i _ -> Just i
       _ -> Nothing
     minimum' is = case is of
-      [i] -> i
-      _ -> foldl' min (head is) (tail is)
+      i : more -> foldl' min i more
+      [] -> 0
 
 ntOrMvOfSymterm :: [Bound] -> Symterm -> [Item]
 ntOrMvOfSymterm be st = case st of
@@ -85,7 +85,7 @@ checkBoundsConsistency = go []
         Just bo'
           | bo == bo' -> go acc more
           | otherwise -> Left ("inconsistent bounds for " <> plainNtMv (fst x) <> ": " <> plainBo bo <> " and " <> plainBo bo')
-    plainBo bo = maybe "None" ppPlainBound bo
+    plainBo bo = maybe "None: " (\b -> ppPlainBound b <> ": ") bo
 
 plainNtMv :: NtMv -> Text
 plainNtMv (r, suff) = (case r of Ntr n -> n; Mvr n -> n) <> T.concat (map ppPlainSuffixItem suff)
@@ -206,3 +206,13 @@ boundExtraction env sts = do
       de2 = [(ntmv, z) | ((ntmv, _), Just z) <- y]
       de3 = [(ntmv, sd) | ((ntmv, sd), Nothing) <- y]
   pure ((de1, de2), de3)
+
+-- | The checks of Ott's @bound_extraction@ that do not depend on the
+-- target, which it makes for TeX output too: each dot form's bound has
+-- one length, and each nonterminal or metavariable one bound.
+boundsConsistency :: [Symterm] -> Either Text ()
+boundsConsistency sts = do
+  let x = concatMap (ntOrMvOfSymterm []) sts
+  _ <- checkLengthConsistency x
+  _ <- checkBoundsConsistency x
+  pure ()

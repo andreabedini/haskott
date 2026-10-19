@@ -20,9 +20,9 @@ module Haskott.Prover.System
 import Control.Monad (forM, forM_, unless, when)
 import Control.Monad.Trans.State.Strict (get, modify)
 import qualified Data.ByteString as B
-import Data.List (find, foldl', sortBy)
+import Data.List (find, sortBy)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Data.Ord (comparing)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -64,8 +64,8 @@ data Prepared = Prepared
 -- | Ott's checks for the prover targets of a run, its dependencies for
 -- each, and the vertex counter after the checker and the term parser
 -- (which builds a graph of the term grammar's nonterminals).
-prepareProvers :: [Target] -> [Input] -> Spec -> Int -> Either Diagnostic Prepared
-prepareProvers targets inputs spec grammarNonterminals = do
+prepareProvers :: Bool -> [Target] -> [Input] -> Spec -> Int -> Either Diagnostic Prepared
+prepareProvers merge targets inputs spec grammarNonterminals = do
   metaHoms targets spec
   axs <- auxfnTypes spec
   let auxfnNames = Set.size (Set.fromList (map fst (specAuxfns spec)))
@@ -74,7 +74,7 @@ prepareProvers targets inputs spec grammarNonterminals = do
       step (acc, c) t = let (d, c') = computeDependencies spec t c in (acc ++ [(t, d)], c')
       (deps, c1) = foldl' step ([], c0) ("ascii" : map targetName targets)
       structure = collapsedStructure inputs (structureOf spec axs)
-  forM_ deps $ \(_, d) -> checkStructure spec (depGraphNontran d) structure
+  unless merge $ forM_ deps $ \(_, d) -> checkStructure spec (depGraphNontran d) structure
   pure
     Prepared
       { prDeps = M.fromList [(t, d) | t <- targets, Just d <- [lookup (targetName t) deps]]
@@ -227,7 +227,9 @@ collapsedStructure inputs entries =
   let place l = case l of
         Nothing -> Nothing
         Just off -> Just (inputAt off)
-      inputAt off = last (head inputs : [i | i <- inputs, inBase i <= off])
+      inputAt off = case [i | i <- inputs, inBase i <= off] of
+        [] -> fromMaybe (error "Haskott.Prover.System: no input") (listToMaybe inputs)
+        is -> last is
       lineOf off =
         let i = inputAt off
             bytes = TE.encodeUtf8 (inText i)
@@ -272,18 +274,18 @@ collapsedStructure inputs entries =
         (Just c, []) -> [c]
         (Nothing, _) -> error "Haskott.Prover.System: auxfns but undefined current"
         (Just c@(l, _), xs) -> [c, (l, EntryAxs xs)]
-      collapse current auxfns strs = case strs of
+      collapseFrom current auxfns strs = case strs of
         [] -> out current auxfns
         (l, s) : ss
           | mustCollapse s -> case current of
-              Nothing -> collapse (Just (l, s)) [] ss
+              Nothing -> collapseFrom (Just (l, s)) [] ss
               Just (lc, sc)
-                | collapsible sc s && sameFile l lc -> collapse (Just (lc, joined sc s)) auxfns ss
+                | collapsible sc s && sameFile l lc -> collapseFrom (Just (lc, joined sc s)) auxfns ss
                 | otherwise -> case s of
-                    EntryAxs axs' -> collapse (Just (lc, sc)) (axs' ++ auxfns) ss
-                    _ -> out current auxfns ++ collapse (Just (l, s)) [] ss
-          | otherwise -> out current auxfns ++ ((l, s) : collapse Nothing [] ss)
-   in [(maybe "" inPath (place l), e) | (l, e) <- collapse Nothing [] sorted]
+                    EntryAxs axs' -> collapseFrom (Just (lc, sc)) (axs' ++ auxfns) ss
+                    _ -> out current auxfns ++ collapseFrom (Just (l, s)) [] ss
+          | otherwise -> out current auxfns ++ ((l, s) : collapseFrom Nothing [] ss)
+   in [(maybe "" inPath (place l), e) | (l, e) <- collapseFrom Nothing [] sorted]
 
 ------------------------------------------------------------------------
 -- The output
@@ -299,6 +301,8 @@ data ProverJob = ProverJob
   -- ^ each output file with its input files, in Ott's order
   , pjParse :: Text -> Text -> [Symterm]
   -- ^ every parse of a text as a term of a root, in order
+  , pjMerge :: Bool
+  -- ^ Ott's @-merge true@: the output ignores the structure
   }
 
 -- | The file name Ott names the theory by: without @.thy@ or
@@ -328,13 +332,85 @@ proverOutputs prepared job vertex0 = do
       Right (s, p, mvr, ntr) -> Right (s, p, renameDeps mvr ntr deps0, [(f, renameEntry mvr ntr e) | (f, e) <- structure0])
     _ -> Right (pjSpec job, pjProcessed job, deps0, structure0)
   let env = (makeEnv t opts deps (prAuxfnTypes prepared) (pjQuotation job) spec) {envParse = pjParse job}
+  if pjMerge job then mergedOutput env processed job vertex0 else structuredOutput env processed structure job vertex0
+
+-- | Ott's @pp_systemdefn@, used with @-merge true@: one file, the
+-- metavariables, rules, functions, embeds and definitions each together.
+mergedOutput :: Env -> Processed -> ProverJob -> Int -> Either Text ([(FilePath, Text)], Int)
+mergedOutput env processed job vertex0 = do
+  o <- case pjOutputs job of
+    [(o, _)] -> Right o
+    _ -> Left "must specify only one output file .\n"
+  fn <- outputFileName (envTarget env) o
+  let spec = envSpec env
+      sources = T.unwords [T.pack (inPath i) | i <- pjInputs job]
+      tn = targetName (envTarget env)
+      header = "(* generated by Ott 0.34 from: " <> sources <> " *)\n"
+      preamble = [e | e <- specEmbeds spec, embedName e == tn <> "-preamble"]
+      others = [e | e <- specEmbeds spec, embedName e `notElem` preambleNames]
+      preambleNames = ["tex-preamble", "typst-preamble", "tex-wrap-pre", "tex-wrap-post", "coq-preamble", "isa-preamble", "hol-preamble", "lem-preamble", "ocaml-preamble"]
+  (txt, st) <- runP (initialPState vertex0) $ do
+    pre <- T.concat <$> mapM (ppEmbed env) preamble
+    _ <- auxiliaryLemmas env
+    let syntax0 = T.concat (map (ppMetavardefn env) (specMetavars spec))
+    rules <- ppRuleList env (specRules spec)
+    srs <- ppSubrules env (specSubrules spec)
+    axs <- ppAuxfns env (envAuxfnTypes env)
+    sbs <- ppSubsts env (specSubstitutions spec)
+    fvs <- ppFreevars env (specFreevars spec)
+    crs <- ppContext env (specContextrules spec)
+    (library, _) <- psLibrary <$> get
+    auxList <- if isCoq env then psCoqListAuxFuncs <$> get else pure ""
+    srsT <- compute env srs
+    axsT <- compute env axs
+    fvsT <- compute env fvs
+    sbsT <- compute env sbs
+    crsT <- compute env crs
+    let functions =
+          bigLineComment env "auxiliary functions on the new list types" <> auxList
+            <> bigLineComment env "library functions" <> library
+            <> bigLineComment env "subrules" <> srsT
+            <> bigLineComment env "auxiliary functions" <> axsT
+            <> bigLineComment env "free variables" <> fvsT
+            <> bigLineComment env "substitutions" <> sbsT
+            <> bigLineComment env "context application" <> crsT
+    embedsT <- T.concat <$> mapM (ppEmbed env) others
+    defns <- ppFunOrRelnDefnclassList env (processedItems processed)
+    ip <-
+      if isCoq env && not (optCoqExpandLists (envOpts env))
+        then do
+          i <- ppInduction env (specRules spec)
+          pure (if T.null i then "" else bigLineComment env "induction principles" <> i <> "\n")
+        else pure ""
+    let core =
+          bigLineComment env "warning: the backend selected ignores the file structure informations"
+            <> pre
+            <> bigLineComment env "syntax"
+            <> syntax0 <> rules
+            <> "\n"
+            <> functions
+            <> embedsT
+            <> "\n"
+            <> defns
+            <> "\n\n"
+            <> ip
+    pure $ case envTarget env of
+      Isa -> header <> "theory " <> fn <> "\nimports " <> T.unwords ("Main" : isaImports spec) <> "\n" <> "begin\n\n" <> core <> "\nend\n"
+      Hol -> standardPreamble env spec fn [inPath i | i <- pjInputs job] <> core <> "\nval _ = export_theory ();\n"
+      Coq -> header <> T.concat ["Require Import " <> th <> ".\n" | th <- ["Arith", "Bool", "List"] ++ (if optCoqExpandLists (envOpts env) then [] else ["Ott.ott_list_core"])] <> core
+      _ -> header <> core
+  pure ([(o, txt)], psVertex st)
+
+structuredOutput :: Env -> Processed -> [(FilePath, Entry)] -> ProverJob -> Int -> Either Text ([(FilePath, Text)], Int)
+structuredOutput env processed structure job vertex0 = do
+  let t = envTarget env
       single = case pjOutputs job of
         [(_, [_])] -> True
         _ -> False
   (files, st) <- runP (initialPState vertex0) $ forM (pjOutputs job) $ \(o, is) -> do
     fn <- either failP pure (outputFileName t o)
     let entries = if single then structure else [(f, e) | (f, e) <- structure, f `elem` is]
-    pre <- ppEmbedmorphism env (preambleName t) (standardPreamble env spec fn is)
+    pre <- ppEmbedmorphism env (preambleName t) (standardPreamble env (envSpec env) fn is)
     lemmas <- auxiliaryLemmas env
     body <- T.concat <$> mapM (ppStructEntry env processed) (map snd entries)
     post <- case t of
@@ -344,7 +420,7 @@ proverOutputs prepared job vertex0 = do
     pure (o, pre <> lemmas <> body <> post <> "\n\n")
   pure (files, psVertex st)
   where
-    structPrefixed env e = ppStructEntry env (pjProcessed job) e
+    structPrefixed env' e = ppStructEntry env' processed e
     dummyRange = fromMaybe (error "range") (Range.fromEnds 0 0)
 
 preambleName :: Target -> Text

@@ -21,7 +21,7 @@ module Haskott.Prover.Dependency
   ) where
 
 import Control.Monad.Trans.State.Strict (get, modify)
-import Data.List (find, foldl', partition)
+import Data.List (find, partition)
 import qualified Data.IntSet as IS
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -99,8 +99,9 @@ computeDependencies spec m counter0 =
       g = foldl' (\gr (a, b) -> G.addEdge a b gr) g0 (concatMap ruleEdges (specRules spec))
       (sg, sccInfo, counter2) = componentGraph g counter1
       back cl = case cl of
-        Left ns -> Ntr (head ns)
-        Right ns -> Mvr (head ns)
+        Left (n : _) -> Ntr n
+        Right (n : _) -> Mvr n
+        _ -> error "Haskott.Prover.Dependency: a class without names"
       classOf v = maybe (error "Haskott.Prover.Dependency: no class") snd (find ((== v) . fst) info)
       dump sv rl = foldr (\v r -> back (classOf v) : r) [] (fromMaybe [] (lookup sv sccInfo)) : rl
       ts = G.topologicalFold dump sg []
@@ -211,15 +212,17 @@ isaPrimrecCollapse funcs =
           headerOf f = let (h, _, _) = rFunHeader f in h
           inpType f = fromMaybe (error "Haskott.Prover.Dependency: cannot extract the inp type from the header") (extractInpType (headerOf f))
           retType f = fromMaybe (error "Haskott.Prover.Dependency: cannot extract the out type from the header") (extractRetType (headerOf f))
-          it = inpType (head g)
+          (first, it) = case g of
+            f : _ -> (f, inpType f)
+            [] -> error "Haskott.Prover.Dependency: an empty group"
           outputType = "(" <> T.intercalate ") * (" (map retType g) <> ")"
           header = ident <> " :: \"" <> it <> " => " <> outputType <> "\"\n"
           lhsOf f = [l | (_, l, _) <- rFunClauses f]
           rhsOf f = [r | (_, _, r) <- rFunClauses f]
-          lhs = lhsOf (head g)
+          lhs = lhsOf first
           rhsLines = transpose' (map rhsOf g)
           rhs = map (T.intercalate " , ") rhsLines
-          clauses = zipWith (\l r -> ("", l, r)) lhs rhs
+          clauses = zipWith (\l r -> (T.empty, l, r)) lhs rhs
           collapsedBody = T.intercalate "| " (map (\(_, l, r) -> "\"" <> ident <> " " <> l <> " = (" <> r <> ")\"\n") clauses)
           makeDefinition f =
             "definition " <> rFunId f <> " :: \"" <> it <> " => " <> retType f <> "\" where\n"

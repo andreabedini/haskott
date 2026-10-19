@@ -14,7 +14,6 @@ module Haskott.Prover.Transform
   ) where
 
 import Data.Char (toLower, toUpper)
-import Data.List (foldl')
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)

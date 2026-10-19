@@ -21,6 +21,7 @@ module Haskott.Defns
   , processedFunClasses
   , canonicalElements
   , processDefns
+  , isFatalDiagnostic
   ) where
 
 import Control.Monad (forM, unless)
@@ -112,6 +113,13 @@ type P = Writer [Diagnostic]
 
 report :: TextRange -> Text -> P ()
 report r m = tell [Diagnostic r m]
+
+-- | Whether Ott stops at this problem (its @Rule_parse_error@) rather
+-- than reporting it and going on: then it writes no output.
+isFatalDiagnostic :: Diagnostic -> Bool
+isFatalDiagnostic d =
+  diagMessage d `elem` ["rule with no conclusion", "rule with multiple conclusions"]
+    || "bad annotation in " `T.isPrefixOf` diagMessage d
 
 -- | Process every definition and function class, resolving several
 -- parses of a term by the policy.

@@ -24,6 +24,7 @@ module Haskott.Tex
   , ppSymterm
   , renderSymterm
   , filterDocument
+  , filteredDocument
   , documentQuotations
   , countsString
   ) where
@@ -1155,6 +1156,11 @@ filterDocument :: Env -> Text -> Either Text Text
 filterDocument env src = do
   els <- parseFiltered (map fst (lexFiltered src))
   pure (ppEmbedSpec env els)
+
+-- | A document as Ott's @filter@ lexer sees it: text and @[[ ]]@
+-- quotations.
+filteredDocument :: Text -> Either Text [EmbedEl]
+filteredDocument src = parseFiltered (map fst (lexFiltered src))
 
 -- | The @[[ ... ]]@ quotations of a document, as the filter sees them:
 -- the byte offset of each quotation's text, the text as written, and the

@@ -24,7 +24,7 @@ import Haskott.Spec (Spec (..), Rule (..), Prod (..), Diagnostic (..))
 import Haskott.Spec.Check (checkDocument)
 import Haskott.Spec.Show (Class (..), Tok (..), homsText, prodTokens)
 import Haskott.Syntax (parseDocument)
-import Haskott.Defns (processDefns)
+import Haskott.Defns (isFatalDiagnostic, processDefns)
 import Haskott.Term.Parse (ParsePolicy (..), makeTermParser, parseTerms)
 import Haskott.Term.Requests (TermRequest (..), termRequests)
 import Haskott.Term.Symterm (ppPlainSymterm)
@@ -173,9 +173,12 @@ compareProver ott t rel file src spec = do
   theirs <- if exists && code == ExitSuccess then Just <$> B.readFile out else pure Nothing
   let tp = makeTermParser spec
       policy = FirstIfSame [renderProverSymterm t defaultProverOptions spec | t /= Caml]
-      (processed, _) = processDefns policy tp spec
+      (processed, defnDiags) = processDefns policy tp spec
       mine = do
-        prepared <- either (Left . diagMessage) Right (prepareProvers [t] [Input file src 0] spec (nonterminalCount (termGrammar tp)))
+        case filter isFatalDiagnostic defnDiags of
+          d : _ -> Left (diagMessage d)
+          [] -> Right ()
+        prepared <- either (Left . diagMessage) Right (prepareProvers False [t] [Input file src 0] spec (nonterminalCount (termGrammar tp)))
         let job =
               ProverJob
                 { pjTarget = t
@@ -186,6 +189,7 @@ compareProver ott t rel file src spec = do
                 , pjQuotation = quotationParser policy tp
                 , pjParse = \root txt -> parseTerms tp root False txt
                 , pjOutputs = [(out, [file])]
+                , pjMerge = False
                 }
         (files, _) <- proverOutputs prepared job (prVertex prepared)
         case files of
