@@ -8,9 +8,10 @@ It takes the Ott input syntax exactly as the
 [andreabedini/ott](https://github.com/andreabedini/ott) fork accepts it
 (including its Typst backend, quoted terminals and nested dot forms), checks a
 definition as Ott does, and writes what Ott writes: TeX and Typst output, the
-`[[ ... ]]` document filters, and the definitions for Coq, Isabelle, HOL, Lem
-and OCaml. The driving use is the formalisation of the Haskell 2010 revised
-report in the `formalisation` directory of `haskell-2010-revised-report`.
+`[[ ... ]]` document filters, and the definitions for Coq, Isabelle, HOL,
+Lem, OCaml and Twelf. The driving use is the formalisation of the Haskell
+2010 revised report in the `formalisation` directory of
+`haskell-2010-revised-report`.
 
 Unlike Ott, haskott parses a specification into a lossless concrete syntax tree
 (a [graft](../graft) green tree, rowan's model: whitespace and comments are
@@ -164,7 +165,8 @@ not about.
   compares the TeX output of every corpus file, byte for byte; it also
   agrees on the report's specifications and filtered document.
 - Milestone 11, prover output: the definitions for Coq (`.v`), Isabelle
-  (`.thy`), HOL (`Script.sml`), Lem (`.lem`) and OCaml (`.ml`), as ports
+  (`.thy`), HOL (`Script.sml`), Lem (`.lem`), OCaml (`.ml`) and Twelf
+  (`.twf`, where Ott fails on what it does not implement), as ports
   of Ott's printers under `Haskott.Prover`: the types of the grammar
   grouped by their dependencies, the inductive relations of the
   definitions, functions, subrule predicates, auxiliary functions,
@@ -186,17 +188,20 @@ not about.
 - Also: `-merge true`, merging the rules, definition classes,
   definitions and functions of the same name across files (the TeX and
   prover outputs of the tapl example agree with Ott's); Ott's stop at a
-  rule with no or several conclusions; and its check of the bounds of
-  every rule before TeX output.
-- Not yet done: Twelf output (`.twf`), the OCaml lexer and parser
-  generators (`.mll`, `.mly`, `-ocaml_pp`), `-output_source_locations`,
-  `-writesys`/`-readsys`, and Ott's debugging outputs.
+  rule with no or several conclusions; its check of the bounds of every
+  rule before TeX output; and `-output_source_locations` in every
+  output, the lines of each construct worked out from the tree as
+  Ott's parser reports them (`Haskott.SourceLoc`; the differential's
+  `--source-locations N`).
+- Not yet done: the OCaml lexer and parser generators (`.mll`, `.mly`,
+  `-ocaml_pp`), `-writesys`/`-readsys`, and Ott's debugging outputs.
 
 haskott takes Ott's command line for the implemented part: `haskott -i
-FILE... -o OUT.tex|OUT.typ|OUT.v|OUT.thy|OUTScript.sml|OUT.lem|OUT.ml
+FILE... -o OUT.tex|OUT.typ|OUT.v|OUT.thy|OUTScript.sml|OUT.lem|OUT.ml|OUT.twf
 [-tex_filter SRC DST] [-typst_filter SRC DST] [-coq_filter SRC DST]
 [-isa_filter SRC DST] [-hol_filter SRC DST] [-lem_filter SRC DST]
 [-ocaml_filter SRC DST] [-picky_multiple_parses BOOL] [-merge BOOL]
+[-output_source_locations N]
 [-coq_avoid N] [-coq_expand_list_types BOOL] [-coq_names_in_rules BOOL]
 [-coq_use_filter_fn BOOL] [-coq_lngen BOOL] [-isabelle_primrec BOOL]
 [-isabelle_inductive BOOL] [-isa_syntax BOOL] [-isa_generate_lemmas BOOL]
