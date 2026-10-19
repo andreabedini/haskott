@@ -65,8 +65,8 @@ main = do
         | expected == ShouldFail -> pure Nothing
         | otherwise -> pure (Just (rel ++ ": not valid UTF-8: " ++ show err))
       Right src -> pure (check rel expected src)
-  let failures = [f | Just f <- results]
-  putStrLn (show (length entries) ++ " files, " ++ show (length failures) ++ " disagreements")
+  let failures = [f | Just f <- results] ++ [f | (name, src) <- inlineCases, Just f <- [check name ShouldParse src]]
+  putStrLn (show (length entries + length inlineCases) ++ " files, " ++ show (length failures) ++ " disagreements")
   mapM_ putStrLn failures
   -- the first problem of each file is the one recorded before error
   -- recovery existed, which is Ott's first
@@ -85,6 +85,27 @@ main = do
     expectation cls
       | cls == "parse-error" = ShouldFail
       | otherwise = ShouldParse
+
+-- | Specifications for what the corpus does not exercise.
+inlineCases :: [(FilePath, T.Text)]
+inlineCases =
+  [ ( "<quotations with leading blanks>"
+    , T.unlines
+        [ "metavar x ::= {{ coq nat }}"
+        , "grammar"
+        , "t :: t_ ::="
+        , "  | x :: :: var"
+        , "  | t t' :: :: app"
+        , "defns"
+        , "J :: '' ::="
+        , "defn t1 => t2 :: :: red :: '' by"
+        , "    {{ com see [[  t1  t2 ]] and [[x]] }}"
+        , "    {{ coq [[  t1 ]] }}"
+        , "    ---- :: one"
+        , "    t1 => t1"
+        ]
+    )
+  ]
 
 check :: FilePath -> Expectation -> T.Text -> Maybe String
 check rel expected src = case (expected, parseDocument src) of

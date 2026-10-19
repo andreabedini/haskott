@@ -133,11 +133,9 @@ spliceTerms policy tp doc =
                   Nothing -> Nothing
                   Just els' -> Just (homTextTokens before ++ [Node (Green.node HomRef ([Token (Green.token RefOpen "[[")] ++ quoted q els ++ [Token (Green.token RefClose "]]")]))] ++ els')
 
-    -- a quotation's term with the whitespace around it
-    quoted q els =
-      let (lead, _) = T.span isBlank q
-          (_, trailing) = splitTrailing q
-       in spaceToken lead ++ els ++ spaceToken trailing
+    -- a quotation's term with its trailing whitespace (parseLine's
+    -- elements already start with the leading whitespace)
+    quoted q els = els ++ spaceToken (snd (splitTrailing q))
 
     -- a comment block's [[ ]] quotations are terms of user syntax
     defnComChild c = case Cursor.kind c of
