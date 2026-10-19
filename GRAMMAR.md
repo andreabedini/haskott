@@ -2,10 +2,9 @@
 
 This document specifies the syntax of Ott source files (`.ott`) in enough detail
 to reimplement a compatible parser from scratch. The reference implementation is
-Ott 0.34 as extended on the `typst` work of
-[andreabedini/ott](https://github.com/andreabedini/ott) (commit `1200eab`,
-"fix: make quoted tokens in productions terminals"): `src/grammar_lexer.mll`,
-`src/grammar_parser.mly`, and the rule-body processing in `src/defns.ml`.
+Ott 0.34 with `typst` homs and embeds and quoted elements in productions
+(§3.4): `src/grammar_lexer.mll`, `src/grammar_parser.mly`, and the rule-body
+processing in `src/defns.ml`.
 Ott's own manual says of this grammar only that "the lexing of Ott source files
 is context-dependent; this does not show that". This document shows it.
 
@@ -396,7 +395,7 @@ elements are separated by nothing (`..`), by the previous element repeated
 are three distinct tokens because `elements` mode lexes them so.
 
 A `string` element whose spelling was quoted (`'in'`, `'::'`, `'..'`) is a
-**quoted element** (fork extension, Ott commit `1200eab`). Its dequoted content
+**quoted element**. Its dequoted content
 is what is matched in terms; stage two treats it as a terminal unless the
 content is exactly a declared metavariable or nonterminal root. The purpose is
 to write terminals such as `in`, which would otherwise lex in terms as the
@@ -699,7 +698,7 @@ law still holds for the whole file.
 Ott's repository ships 125 `.ott` files under `tests/` and 39 under
 `examples/`, and the report's formalisation has `ott/expressions.ott`. All three are
 the acceptance corpus: a file is accepted by haskott if and only if Ott 0.34
-(fork) accepts it, and for accepted files the number of rules, productions and
+accepts it, and for accepted files the number of rules, productions and
 definitions agree. Construct usage across `tests/` and `examples/` (files
 containing it), measured 2026-10-17:
 
