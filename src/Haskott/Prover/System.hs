@@ -36,6 +36,7 @@ import Haskott.Prover.Context
 import Haskott.Prover.CoqInduct
 import Haskott.Prover.Defns
 import Haskott.Prover.Dependency
+import Haskott.Prover.ExpandLists
 import Haskott.Prover.Pp
 import Haskott.Prover.Subrules
 import Haskott.Prover.Substs
@@ -332,12 +333,12 @@ proverOutputs prepared job vertex0 = do
       Right (s, p, mvr, ntr) -> Right (s, p, renameDeps mvr ntr deps0, [(f, renameEntry mvr ntr e) | (f, e) <- structure0])
     _ -> Right (pjSpec job, pjProcessed job, deps0, structure0)
   let env = (makeEnv t opts deps (prAuxfnTypes prepared) (pjQuotation job) spec) {envParse = pjParse job}
-  if pjMerge job then mergedOutput env processed job vertex0 else structuredOutput env processed structure job vertex0
+  if pjMerge job then mergedOutput env processed structure job vertex0 else structuredOutput env processed structure job vertex0
 
 -- | Ott's @pp_systemdefn@, used with @-merge true@: one file, the
 -- metavariables, rules, functions, embeds and definitions each together.
-mergedOutput :: Env -> Processed -> ProverJob -> Int -> Either Text ([(FilePath, Text)], Int)
-mergedOutput env processed job vertex0 = do
+mergedOutput :: Env -> Processed -> [(FilePath, Entry)] -> ProverJob -> Int -> Either Text ([(FilePath, Text)], Int)
+mergedOutput env processed structure job vertex0 = do
   o <- case pjOutputs job of
     [(o, _)] -> Right o
     _ -> Left "must specify only one output file .\n"
@@ -349,11 +350,12 @@ mergedOutput env processed job vertex0 = do
       preamble = [e | e <- specEmbeds spec, embedName e == tn <> "-preamble"]
       others = [e | e <- specEmbeds spec, embedName e `notElem` preambleNames]
       preambleNames = ["tex-preamble", "typst-preamble", "tex-wrap-pre", "tex-wrap-post", "coq-preamble", "isa-preamble", "hol-preamble", "lem-preamble", "ocaml-preamble"]
-  (txt, st) <- runP (initialPState vertex0) $ do
+  let (envX, _, state0) = expansion env structure vertex0
+  (txt, st) <- runP state0 $ do
     pre <- T.concat <$> mapM (ppEmbed env) preamble
-    _ <- auxiliaryLemmas env
-    let syntax0 = T.concat (map (ppMetavardefn env) (specMetavars spec))
-    rules <- ppRuleList env (specRules spec)
+    _ <- auxiliaryLemmas envX
+    let syntax0 = T.concat (map (ppMetavardefn envX) (specMetavars spec))
+    rules <- ppRuleList envX (specRules (envSpec envX))
     srs <- ppSubrules env (specSubrules spec)
     axs <- ppAuxfns env (envAuxfnTypes env)
     sbs <- ppSubsts env (specSubstitutions spec)
@@ -402,17 +404,18 @@ mergedOutput env processed job vertex0 = do
   pure ([(o, txt)], psVertex st)
 
 structuredOutput :: Env -> Processed -> [(FilePath, Entry)] -> ProverJob -> Int -> Either Text ([(FilePath, Text)], Int)
-structuredOutput env processed structure job vertex0 = do
+structuredOutput env processed structure0 job vertex0 = do
   let t = envTarget env
       single = case pjOutputs job of
         [(_, [_])] -> True
         _ -> False
-  (files, st) <- runP (initialPState vertex0) $ forM (pjOutputs job) $ \(o, is) -> do
+      (envX, structure, state0) = expansion env structure0 vertex0
+  (files, st) <- runP state0 $ forM (pjOutputs job) $ \(o, is) -> do
     fn <- either failP pure (outputFileName t o)
     let entries = if single then structure else [(f, e) | (f, e) <- structure, f `elem` is]
     pre <- ppEmbedmorphism env (preambleName t) (standardPreamble env (envSpec env) fn is)
-    lemmas <- auxiliaryLemmas env
-    body <- T.concat <$> mapM (ppStructEntry env processed) (map snd entries)
+    lemmas <- auxiliaryLemmas envX
+    body <- T.concat <$> mapM (ppStructEntryX env envX processed) (map snd entries)
     post <- case t of
       Isa -> structPrefixed env (EntryEmbed (Embed "isa" [EmbedString "\nend\n"] dummyRange))
       Hol -> structPrefixed env (EntryEmbed (Embed "hol" [EmbedString "\nval _ = export_theory ();\n"] dummyRange))
@@ -488,19 +491,38 @@ ppLibrary env = do
       modify (\s -> s {psLibrary = ("", names)})
       pure (bigLineComment env "library functions" <> txt)
 
+-- | Ott's @Transform.expand_lists_in_syntaxdefn@ for a Coq target with
+-- @-coq_expand_list_types true@: the environment with the expanded rules
+-- (for printing the groups of rules), the structure with the new list
+-- types and their functions, and the initial state; otherwise as given.
+expansion :: Env -> [(FilePath, Entry)] -> Int -> (Env, [(FilePath, Entry)], PState)
+expansion env structure vertex0
+  | isCoq env && optCoqExpandLists (envOpts env) =
+      let dummy = fromMaybe (error "range") (Range.fromEnds 0 0)
+          ex = expandLists env (\funcs -> EntryEmbed (Embed "coq" [EmbedString funcs] dummy)) [(f, case e of EntryRs ns -> Left ns; _ -> Right e) | (f, e) <- structure] vertex0
+          envX = (makeEnv (envTarget env) (envOpts env) (exDeps ex) (exAuxfns ex) (envQuotation env) (exSpec ex)) {envParse = envParse env}
+          st = (initialPState (exVertex ex)) {psCoqListTypes = exListTypes ex, psCoqListAuxFuncs = exListAuxFuncs ex}
+       in (envX, [(f, either EntryRs id e) | (f, e) <- exStructure ex], st)
+  | otherwise = (env, structure, initialPState vertex0)
+
 -- | Ott's @pp_struct_entry@.
 ppStructEntry :: Env -> Processed -> Entry -> P Text
-ppStructEntry env processed e = do
+ppStructEntry env = ppStructEntryX env env
+
+-- | Ott's @pp_struct_entry@, with the expanded syntax for the groups of
+-- rules.
+ppStructEntryX :: Env -> Env -> Processed -> Entry -> P Text
+ppStructEntryX env envX processed e = do
   lib <- ppLibrary env
   body <- case e of
     EntryMd mvr -> pure (ppMetavardefn env (mvdOfMvr env mvr))
     EntryRs ntrs -> do
-      let rs = map (ruleOfNtr env) ntrs
-      def <- ppRuleList env rs
+      let rs = map (ruleOfNtr envX) ntrs
+      def <- ppRuleList envX rs
       ip <-
         if isCoq env && not (optCoqExpandLists (envOpts env))
           then do
-            ip <- ppInduction env rs
+            ip <- ppInduction envX rs
             pure (if T.null ip then "" else bigLineComment env "induction principles" <> ip)
           else pure ""
       pure (def <> ip)

@@ -11,7 +11,7 @@ module Haskott.Prover.Defns
   , nonFreeNtrs
   ) where
 
-import Control.Monad (forM, unless)
+import Control.Monad (forM)
 import Control.Monad.Trans.State.Strict (get, modify)
 import Data.List (find, partition)
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -21,6 +21,7 @@ import qualified Data.Text as T
 import Haskott.Defns
 import Haskott.Prover.Bounds
 import Haskott.Prover.Dependency
+import Haskott.Prover.ExpandLists (ppListRule)
 import Haskott.Prover.Pp
 import Haskott.Prover.Types
 import Haskott.Spec
@@ -325,8 +326,24 @@ ppFundefnclass env pfc = do
 -- | Ott's @pp_fun_or_reln_defnclass_list@ for a prover.
 ppFunOrRelnDefnclassList :: Env -> [ProcessedItem] -> P Text
 ppFunOrRelnDefnclassList env items = do
-  unless (not (isCoq env && optCoqExpandLists (envOpts env))) (failP "-coq_expand_list_types true is not supported")
+  listRules <- if isCoq env && optCoqExpandLists (envOpts env) then auxiliaryListRules env items else pure ""
   bodies <- forM items $ \it -> case it of
     PReln pc -> ppDefnclass env pc
     PFuns pfc -> ppFundefnclass env pfc
-  pure ((if isCoq env then "(* definitions *)\n" else "(** definitions *)\n") <> T.concat bodies)
+  pure (listRules <> (if isCoq env then "(* definitions *)\n" else "(** definitions *)\n") <> T.concat bodies)
+
+-- | Ott's @pp_auxiliary_list_rules@: with expanded list types, the list
+-- types the dot forms of the rules need, each once.
+auxiliaryListRules :: Env -> [ProcessedItem] -> P Text
+auxiliaryListRules env items =
+  fmap T.concat $ forM [dr | PReln pc <- items, d <- pcDefns pc, ItemRule dr <- pdRules d] $ \dr -> do
+    ((de1, _), _) <- bounds env (druleConclusion dr : map snd (drulePremises dr))
+    fmap T.concat $ forM de1 $ \(_, de1i) -> do
+      let ntmvrl = [promoteNtmvr env (primaryNtmvr env r) | ((r, _), _) <- de1Ntmvsns de1i]
+          name = "list" <> T.concat ["_" <> ppNtOrMvRoot env r | r <- ntmvrl]
+      known <- psCoqListTypes <$> get
+      if name `elem` known
+        then pure ""
+        else do
+          modify (\st -> st {psCoqListTypes = name : psCoqListTypes st})
+          pure (ppListRule (envSpec env) ntmvrl)
