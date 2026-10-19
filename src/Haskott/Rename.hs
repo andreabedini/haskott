@@ -55,7 +55,7 @@ import Haskott.Load
 import Haskott.Spec
 import Haskott.Syntax (ParseError (..))
 import qualified Data.Map.Strict as M
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Haskott.Syntax.Ast (identValue)
 import qualified Haskott.Syntax.Ast as A
 import Haskott.Syntax.Kind (Kind)
@@ -103,15 +103,18 @@ renameRoot old new specFiles docFiles = do
   validate spec old new
   let tp = makeTermParser spec
       ctx = Ctx old new (specRoots spec) tp (M.unions (map (namedOwners . srcTree) (ldSources loaded)))
+      -- a specification file's new text is its renamed tree's; a
+      -- document has no tree, so its edits are applied to its text
       specResults =
-        [ (srcPath s, srcText s, treeEdits ctx s tree', mentions ctx (srcTree s))
+        [ (srcPath s, srcText s, (ps, es), Green.render renamedTree, mentions ctx (srcTree s))
         | s <- ldSources loaded
         , let (tree', _, _) = spliceTerms (FirstIfSame []) tp (srcTree s)
+              (ps, es, renamedTree) = treeRename ctx s tree'
         ]
-      docResults = [(f, src, docEdits ctx f src, []) | (f, src) <- docFiles]
-      problems = concat [ps | (_, _, (ps, _), _) <- specResults ++ docResults]
+      docResults = [(f, src, (ps, es), applyEdits src es, []) | (f, src) <- docFiles, let (ps, es) = docEdits ctx f src]
+      problems = concat [ps | (_, _, (ps, _), _, _) <- specResults ++ docResults]
   unless (null problems) (Left problems)
-  let renamed = [FileRename f src (applyEdits src es) es notes | (f, src, (_, es), notes) <- specResults ++ docResults]
+  let renamed = [FileRename f src newText es notes | (f, src, (_, es), newText, notes) <- specResults ++ docResults]
       nSpec = length specFiles
       newSpecFiles = [(frPath r, frNew r) | r <- take nSpec renamed]
       newDocFiles = [(frPath r, frNew r) | r <- drop nSpec renamed]
@@ -203,23 +206,70 @@ data Ctx = Ctx
 
 type C = Cursor Kind
 
--- | The edits of one specification file, from its spliced tree.
-treeEdits :: Ctx -> Source -> GreenNode Kind -> ([Problem], [Edit])
-treeEdits ctx s tree = mconcat (map (visit [] Set.empty) (Cursor.children (Cursor.fromGreen (Node tree))))
+-- | How one token or quotation is renamed, if at all: the edits, with
+-- offsets from its start in the old text, and what replaces it in the
+-- tree.
+type Renaming = Either Text (Maybe ([Edit], GreenElement Kind))
+
+-- | What a walk has found so far. The cursor gives offsets in the tree as
+-- edited so far; the shift turns them back into offsets in the old text,
+-- where the problems and the edits are reported.
+data Walk = Walk
+  { wShift :: !Int
+  -- ^ the bytes the edits so far have added
+  , wProblems :: [Problem]
+  -- ^ newest first
+  , wEdits :: [Edit]
+  -- ^ newest first
+  }
+
+-- | Rename the root in one specification file, by walking its spliced tree
+-- with one cursor and replacing each token and quotation that mentions
+-- it. Returns the problems, the edits (with offsets in the old text, for
+-- the command line and the editor to show) and the renamed tree, which
+-- renders to the new text.
+treeRename :: Ctx -> Source -> GreenNode Kind -> ([Problem], [Edit], GreenElement Kind)
+treeRename ctx s tree
+  -- the new text is the renamed tree's, so the tree must be the file
+  | rendered /= text =
+      let off = maybe 0 (\(common, _, _) -> byteLength common) (T.commonPrefixes rendered text)
+       in ([Problem (Just (file, text, off)) "internal error: the tree of this file with its terms parsed does not render to the file here, so rename cannot edit it"], [], Node tree)
+  | otherwise =
+      let (w, c) = visitChildren [] Set.empty (Walk 0 [] [], Cursor.fromGreen (Node tree))
+       in (reverse (wProblems w), reverse (wEdits w), Cursor.tree c)
   where
+    rendered = Green.renderNode tree
     file = srcPath s
     text = srcText s
-    problemAt off m = Problem (Just (file, text, off)) m
 
+    -- a cursor offset, in the tree as edited so far, as an offset in the
+    -- old text
+    oldOffset w off = fromIntegral off - wShift w
+
+    -- the renaming of a focus whose old text starts at a cursor offset
+    apply :: Walk -> C -> TextLength -> Renaming -> (Walk, C)
+    apply w c at r = case r of
+      Left m -> (w {wProblems = Problem (Just (file, text, oldOffset w at)) m : wProblems w}, c)
+      Right Nothing -> (w, c)
+      Right (Just ([], _)) -> (w, c)
+      Right (Just (es, replacement)) ->
+        let es' = map (shiftEdit (oldOffset w at)) es
+            added = sum [byteLength (editNew e) - (editEnd e - editStart e) | e <- es]
+         in (w {wShift = wShift w + added, wEdits = reverse es' ++ wEdits w}, Cursor.replace replacement c)
+
+    -- Each node is entered before anything below it is edited, so what
+    -- is read from a node on entry (its owner's identifiers, the text of
+    -- a quotation) is the old text.
+    --
     -- owner: the identifiers a hom reference can resolve to, those of the
     -- elements of the enclosing production, judgement form or function,
     -- or the names of the enclosing declaration; a reference that names
     -- none of them is target text, not a root
-    visit :: [Kind] -> Set.Set Text -> C -> ([Problem], [Edit])
-    visit anc owner c = case Cursor.green c of
-      Token t -> tokenEdits anc owner c t
+    visit :: [Kind] -> Set.Set Text -> (Walk, C) -> (Walk, C)
+    visit anc owner (w, c) = case Cursor.green c of
+      Token t -> apply w c (Range.start (Cursor.range c)) (tokenRenaming anc owner c t)
       Node _
-        | Cursor.kind c == K.HomRef && (K.Embed `elem` anc || K.DefnCom `elem` anc) && not (spliced c) -> quotationEdits c
+        | Cursor.kind c == K.HomRef && (K.Embed `elem` anc || K.DefnCom `elem` anc) && not (spliced c) -> quotation w c
         | otherwise ->
             let owner' = case Cursor.kind c of
                   k | k `elem` [K.Prod, K.Defn, K.Fundefn, K.MetavarDecl, K.Rule] -> ownerIdents c
@@ -228,9 +278,18 @@ treeEdits ctx s tree = mconcat (map (visit [] Set.empty) (Cursor.children (Curso
                     (Just item, Just section) -> M.findWithDefault Set.empty (A.homsSectionWrapper section <> A.homsItemName item) (cOwners ctx)
                     _ -> Set.empty
                   _ -> owner
-             in mconcat (map (visit (Cursor.kind c : anc) owner') (Cursor.children c))
+             in visitChildren (Cursor.kind c : anc) owner' (w, c)
 
-
+    -- visit the children in order, threading the cursor, and come back up
+    visitChildren :: [Kind] -> Set.Set Text -> (Walk, C) -> (Walk, C)
+    visitChildren anc owner (w, c) = maybe (w, c) (along w) (Cursor.firstChild c)
+      where
+        along w0 child =
+          let (w1, child') = visit anc owner (w0, child)
+           in case Cursor.nextSibling child' of
+                Just next -> along w1 next
+                -- a child always has a parent
+                Nothing -> (w1, fromMaybe c (Cursor.parent child'))
 
     spliced c = any (isTermKind . Cursor.kind) (Cursor.children c)
     isTermKind k = case k of
@@ -240,17 +299,15 @@ treeEdits ctx s tree = mconcat (map (visit [] Set.empty) (Cursor.children (Curso
       K.TList -> True
       _ -> False
 
-    tokenEdits anc owner c t =
+    tokenRenaming :: [Kind] -> Set.Set Text -> C -> GreenToken Kind -> Renaming
+    tokenRenaming anc owner c t =
       let k = Green.tokenKind t
           v = Green.text t
-          start = fromIntegral (Range.start (Cursor.range c))
-          end = fromIntegral (Range.end (Cursor.range c))
           parent = case anc of (p : _) -> Just p; [] -> Nothing
           grand = case anc of (_ : g : _) -> Just g; _ -> Nothing
-          one r = case r of
-            Left m -> ([problemAt start m], [])
-            Right Nothing -> ([], [])
-            Right (Just v') -> ([], [Edit start end v v'])
+          none = Right Nothing
+          refuse m = Left m
+          one r = fmap (wholeToken t) r
           exact = one (Right (renameExact ctx v))
           lexed = one (renameLexed ctx Nothing v)
        in case k of
@@ -258,31 +315,33 @@ treeEdits ctx s tree = mconcat (map (visit [] Set.empty) (Cursor.children (Curso
             K.TMetavar -> one (renameTermMetavar ctx v)
             K.TIndex -> one (Right (renameIndex ctx v))
             K.Line
-              | parent == Just K.Formula -> lineEdits start v
+              -- a lineless block's line is parsed on its own, and stays a line
+              | parent == Just K.Formula ->
+                  (fmap . fmap) (\(es, els) -> (es, Token (Green.token K.Line (renderAll els)))) (renameTerm ctx "formula" userSyntaxTransform v)
               | cOld ctx `T.isInfixOf` v ->
-                  ([problemAt start ("this rule line does not parse, so " <> quote (cOld ctx) <> " cannot be renamed in it")], [])
-              | otherwise -> ([], [])
+                  refuse ("this rule line does not parse, so " <> quote (cOld ctx) <> " cannot be renamed in it")
+              | otherwise -> none
             K.Ident
               | parent == Just K.Name && grand `elem` [Just K.MetavarDecl, Just K.Rule] -> exact
-              | K.Bindspecs `elem` anc -> if auxFunction c then ([], []) else lexed
+              | K.Bindspecs `elem` anc -> if auxFunction c then none else lexed
               | parent `elem` [Just K.Subrule, Just K.Contextrule] -> exact
               | parent `elem` [Just K.Substitution, Just K.Freevar] && colonsBefore c == 0 -> exact
               | parent == Just K.Fundefn && colonsBefore c == 1 -> exact
               | parent == Just K.HomsItem && identValue v == cOld ctx ->
-                  ([problemAt start "a hom section names this root; rename does not support hom sections yet"], [])
-              | otherwise -> ([], [])
+                  refuse "a hom section names this root; rename does not support hom sections yet"
+              | otherwise -> none
             K.Element
-              | K.HomRef `elem` anc -> if v `Set.member` owner then lexed else ([], [])
+              | K.HomRef `elem` anc -> if v `Set.member` owner then lexed else none
               | any (`elem` anc) [K.Prod, K.Defn, K.Fundefn, K.Comp, K.CompBound] -> lexed
-              | otherwise -> ([], [])
+              | otherwise -> none
             K.QuotedElement
               | any (`elem` anc) [K.Prod, K.Defn, K.Fundefn, K.Comp] -> one (Right (renameQuoted ctx v))
-              | otherwise -> ([], [])
+              | otherwise -> none
             K.HomText
               | parent == Just K.CompBound -> lexed
               | K.HomRef `elem` anc && v `Set.member` owner -> lexed
-              | otherwise -> ([], [])
-            _ -> ([], [])
+              | otherwise -> none
+            _ -> none
 
     colonsBefore c = length [() | p <- prevSiblings c, Cursor.kind p == K.ColonColon]
     -- an auxiliary function, applied as in f(x) or defined as in f = x
@@ -293,21 +352,32 @@ treeEdits ctx s tree = mconcat (map (visit [] Set.empty) (Cursor.children (Curso
     trivia k = k `elem` [K.Space, K.Newline, K.LineComment, K.BlockComment]
     prevSiblings = unfoldr (\x -> fmap (\p -> (p, p)) (Cursor.previousSibling x))
 
-    -- a lineless block's line is parsed on its own
-    lineEdits start v = case termEdits ctx "formula" userSyntaxTransform v of
-      Right es -> ([], map (shiftEdit start) es)
-      Left m -> ([problemAt start m], [])
+    -- the quotation of an embed or comment block, parsed as user syntax;
+    -- its text between the brackets is replaced by the renamed term
+    quotation w c =
+      let isBracket x = Cursor.kind x `elem` [K.RefOpen, K.RefClose]
+          inner = filter (not . isBracket) (Cursor.children c)
+          q = T.concat (map Cursor.text inner)
+          at = case inner of
+            (x : _) -> Range.start (Cursor.range x)
+            [] -> Range.end (Cursor.range c)
+          rebuild els = case Cursor.green c of
+            Node n ->
+              let (open, rest) = span (isBracketKind . Green.kind) (Green.children n)
+                  close = dropWhile (not . isBracketKind . Green.kind) rest
+               in Node (Green.node K.HomRef (open ++ els ++ close))
+            el -> el
+          isBracketKind k = k `elem` [K.RefOpen, K.RefClose]
+       in apply w c at ((fmap . fmap) (\(es, els) -> (es, rebuild els)) (renameTerm ctx "user_syntax" userSyntaxTransform q))
 
-    -- the quotation of an embed or comment block, parsed as user syntax
-    quotationEdits c =
-      let inner = [x | x <- Cursor.children c, Cursor.kind x /= K.RefOpen, Cursor.kind x /= K.RefClose]
-          q = T.concat (map (Green.render . Cursor.green) inner)
-          start = case inner of
-            (x : _) -> fromIntegral (Range.start (Cursor.range x))
-            [] -> fromIntegral (Range.end (Cursor.range c))
-       in case termEdits ctx "user_syntax" userSyntaxTransform q of
-            Right es -> ([], map (shiftEdit start) es)
-            Left m -> ([problemAt start m], [])
+-- | A token renamed as a whole, if at all.
+wholeToken :: GreenToken Kind -> Maybe Text -> Maybe ([Edit], GreenElement Kind)
+wholeToken t = fmap (\v' -> ([Edit 0 (byteLength v) v v'], Token (Green.token (Green.tokenKind t) v')))
+  where
+    v = Green.text t
+
+renderAll :: [GreenElement Kind] -> Text
+renderAll = T.concat . map Green.render
 
 -- | The words of comments and hom bodies that read as the root, or as a
 -- root whose suffix mentions it: they are target text and stay as
@@ -351,12 +421,14 @@ involvesRoot ctx w = case renameLexed ctx Nothing w of
 
 -- | The identifiers a hom reference under a node can resolve to: the
 -- elements of a production, judgement form or function, or the names of
--- a declaration, outside its homs.
+-- a declaration, outside its homs. The node is looked at on its own, so
+-- that looking up from its tokens stops at it (no such node is inside a
+-- hom) instead of rebuilding ancestors that a renaming walk has edited.
 ownerIdents :: C -> Set.Set Text
 ownerIdents c =
   Set.fromList
     [ Green.text t
-    | d <- Cursor.descendants c
+    | d <- Cursor.descendants (Cursor.fromGreen (Cursor.green c))
     , Token t <- [Cursor.green d]
     , Green.tokenKind t `elem` [K.Element, K.QuotedElement] || (Green.tokenKind t == K.Ident && fmap Cursor.kind (Cursor.parent d) == Just K.Name)
     , K.Hom `notElem` map Cursor.kind (Cursor.ancestors d)
@@ -382,7 +454,9 @@ namedOwners tree =
 shiftEdit :: Int -> Edit -> Edit
 shiftEdit n e = e {editStart = editStart e + n, editEnd = editEnd e + n}
 
--- | The edits of a document, from its quotations.
+-- | The edits of a document, from its quotations. A document has no tree:
+-- its quotations are found by the filter's lexer, so the edits are
+-- applied to its text by offset.
 docEdits :: Ctx -> FilePath -> Text -> ([Problem], [Edit])
 docEdits ctx file src = case documentQuotations src of
   Left m -> ([Problem (Just (file, src, 0)) m], [])
@@ -391,39 +465,64 @@ docEdits ctx file src = case documentQuotations src of
     quotation (off, written, parsed)
       | written /= parsed && cOld ctx `T.isInfixOf` written =
           ([Problem (Just (file, src, off)) "this quotation contains bracket escapes; rename does not support them"], [])
-      | otherwise = case termEdits ctx "user_syntax" userSyntaxTransform written of
-          Right es -> ([], map (shiftEdit off) es)
+      | otherwise = case renameTerm ctx "user_syntax" userSyntaxTransform written of
+          Right r -> ([], maybe [] (map (shiftEdit off) . fst) r)
           Left m -> ([Problem (Just (file, src, off)) m], [])
 
--- | The edits of a term, with offsets in its text. A term with no parse
--- is refused only when it may mention the root.
-termEdits :: Ctx -> Text -> Transform -> Text -> Either Text [Edit]
-termEdits ctx root transform q =
+-- | Rename the root in a term given as text: the edits, with offsets in
+-- the text, and the elements of the renamed term, which render to the new
+-- text. A term with no parse has nothing renamed; it is refused only when
+-- it may mention the root.
+renameTerm :: Ctx -> Text -> Transform -> Text -> Either Text (Maybe ([Edit], [GreenElement Kind]))
+renameTerm ctx root transform q =
   let tp = cParser ctx
       stripped = stripTrailingWhitespace q
+      trailing = T.drop (T.length stripped) q
    in case selectParse (FirstIfSame []) (transform (parseComplete tp root False q)) of
         Nothing
           | cOld ctx `T.isInfixOf` q -> Left ("this term does not parse as " <> root <> ", so " <> quote (cOld ctx) <> " cannot be renamed in it")
-          | otherwise -> Right []
+          | otherwise -> Right Nothing
         Just p -> do
-          let toks = flatten 0 (termElements (termGrammar tp) stripped (parseTree p))
-          fmap concat . mapM (tokEdit) $ toks
+          -- a cursor starts from one element, so the term's elements are
+          -- walked under a holder node, whose kind is never seen
+          let term = Green.node K.TList (termElements (termGrammar tp) stripped (parseTree p))
+          (es, renamed) <- renameTokens termToken (Node term)
+          let els = case renamed of
+                Node n -> Green.children n
+                Token _ -> []
+          pure (Just (es, els ++ [Token (Green.token K.Space trailing) | not (T.null trailing)]))
   where
-    tokEdit (off, k, v) =
-      let r = case k of
+    termToken t =
+      let v = Green.text t
+       in case Green.tokenKind t of
             K.TNonterm -> renameLexed ctx (Just True) v
             K.TMetavar -> renameTermMetavar ctx v
             K.TIndex -> Right (renameIndex ctx v)
             _ -> Right Nothing
-       in case r of
-            Left m -> Left m
-            Right Nothing -> Right []
-            Right (Just v') -> Right [Edit off (off + byteLength v) v v']
-    flatten :: Int -> [GreenElement Kind] -> [(Int, Kind, Text)]
-    flatten _ [] = []
-    flatten off (el : rest) = case el of
-      Token t -> (off, Green.tokenKind t, Green.text t) : flatten (off + byteLength (Green.text t)) rest
-      Node n -> flatten off (Green.children n) ++ flatten (off + fromIntegral (Green.length el)) rest
+
+-- | Walk the tokens of a tree with one cursor, replacing the text of those
+-- the function renames; the first refusal stops the walk. The edits have
+-- offsets in the old text: the cursor gives offsets in the tree as edited
+-- so far, so the bytes added by earlier edits are taken off.
+renameTokens :: (GreenToken Kind -> Either Text (Maybe Text)) -> GreenElement Kind -> Either Text ([Edit], GreenElement Kind)
+renameTokens rename root = maybe (Right ([], root)) (go 0 []) (Cursor.firstToken (Cursor.fromGreen root))
+  where
+    go :: Int -> [Edit] -> C -> Either Text ([Edit], GreenElement Kind)
+    go shift acc c = do
+      (shift', acc', c') <- case Cursor.green c of
+        Token t -> do
+          r <- rename t
+          pure $ case r of
+            Nothing -> (shift, acc, c)
+            Just v' ->
+              let v = Green.text t
+                  start = fromIntegral (Range.start (Cursor.range c)) - shift
+               in ( shift + byteLength v' - byteLength v
+                  , Edit start (start + byteLength v) v v' : acc
+                  , Cursor.replace (Token (Green.token (Green.tokenKind t) v')) c
+                  )
+        Node _ -> pure (shift, acc, c)
+      maybe (Right (reverse acc', Cursor.tree c')) (go shift' acc') (Cursor.nextToken c')
 
 byteLength :: Text -> Int
 byteLength = B.length . TE.encodeUtf8
@@ -746,12 +845,12 @@ occurrences :: Index -> Text -> [(FilePath, Text, [(Int, Int)])]
 occurrences ix root =
   filter
     (\(_, _, rs) -> not (null rs))
-    ( [(srcPath s, srcText s, ranges (treeEdits ctx s t)) | (s, t) <- ixSources ix]
-        ++ [(f, src, ranges (docEdits ctx f src)) | (f, src) <- ixDocs ix]
+    ( [(srcPath s, srcText s, ranges es) | (s, t) <- ixSources ix, let (_, es, _) = treeRename ctx s t]
+        ++ [(f, src, ranges es) | (f, src) <- ixDocs ix, let (_, es) = docEdits ctx f src]
     )
   where
     ctx = Ctx root root (ixRoots ix) (ixParser ix) (ixOwners ix)
-    ranges (_, es) = [(editStart e, editEnd e) | e <- es]
+    ranges es = [(editStart e, editEnd e) | e <- es]
 
 -- | Where a root is declared: the names of metavariable declarations and
 -- grammar rules.
