@@ -4,13 +4,13 @@ A Haskell reimplementation of [Ott](https://github.com/ott-lang/ott), the tool
 for writing semantic definitions of programming languages (Sewell et al.,
 "Ott: Effective tool support for the working semanticist", JFP 20(1), 2010).
 
-The first target is the half of Ott that checks a definition and typesets it:
-the Ott input syntax exactly as the
+It takes the Ott input syntax exactly as the
 [andreabedini/ott](https://github.com/andreabedini/ott) fork accepts it
-(including its Typst backend, quoted terminals and nested dot forms), Typst and
-TeX output, and the `[[ ... ]]` document filter. Proof-assistant backends come
-later. The driving use is the formalisation of the Haskell 2010 revised report
-in the `formalisation` directory of `haskell-2010-revised-report`.
+(including its Typst backend, quoted terminals and nested dot forms), checks a
+definition as Ott does, and writes what Ott writes: TeX and Typst output, the
+`[[ ... ]]` document filters, and the definitions for Coq, Isabelle, HOL, Lem
+and OCaml. The driving use is the formalisation of the Haskell 2010 revised
+report in the `formalisation` directory of `haskell-2010-revised-report`.
 
 Unlike Ott, haskott parses a specification into a lossless concrete syntax tree
 (a [graft](../graft) green tree, rowan's model: whitespace and comments are
@@ -66,14 +66,15 @@ not about.
   that checks. Lines that do not parse stay lines; a term with several
   parses is spliced with the first unless `--picky`.
 - Milestone 6, Typst output: `Haskott.Tex` in its Typst dialect, the
-  fork's Typst dialect of Ott's TeX back end, from the runtime of defaults through the metavariable
-  and grammar tables, the symbolic terms of rules with Ott's spacing,
-  homs, suffixes, dot forms and comprehensions, the definition and
-  function blocks, the `[[ ]]` document filter and the final counts. On
-  the report (`ott/style.ott` with `expressions.ott` and with
-  `layout.ott`, plus the filtered `report.src.typ`) the output is byte for
-  byte the fork's, and `make OTT=haskott` builds the report's PDFs. The
-  differential also compares the Typst output of every corpus file.
+  fork's Typst dialect of Ott's TeX back end, from the runtime of defaults
+  through the metavariable and grammar tables, the symbolic terms of rules
+  with Ott's spacing, homs, suffixes, dot forms and comprehensions, the
+  definition and function blocks, the `[[ ]]` document filter and the
+  final counts. On the report (`ott/style.ott` with `expressions.ott` and
+  with `layout.ott`, plus the filtered `report.src.typ`) the output is
+  byte for byte the fork's, and `make OTT=haskott` builds the report's
+  PDFs. The differential also compares the Typst output of every corpus
+  file.
 - Milestone 7, rename: `haskott rename [--write] OLD NEW FILE...` renames
   a metavariable, index variable or grammar-rule name across the `.ott`
   files of a specification and the `[[ ]]` quotations of documents
@@ -162,13 +163,44 @@ not about.
   to be taken without `-picky_multiple_parses`. The differential
   compares the TeX output of every corpus file, byte for byte; it also
   agrees on the report's specifications and filtered document.
-- Not yet done: Ott's remaining checks (bounds consistency at output time
-  among them), `-merge true` (merging the rules of the same name in
-  several files), prover back ends.
+- Milestone 11, prover output: the definitions for Coq (`.v`), Isabelle
+  (`.thy`), HOL (`Script.sml`), Lem (`.lem`) and OCaml (`.ml`), as ports
+  of Ott's printers under `Haskott.Prover`: the types of the grammar
+  grouped by their dependencies, the inductive relations of the
+  definitions, functions, subrule predicates, auxiliary functions,
+  substitutions, free variables, context application, Coq induction
+  principles, Coq's locally nameless representation and its expanded
+  list types (`-coq_expand_list_types true`), the entries in source
+  order between Ott's preamble and postamble, and the prover document
+  filters (`-coq_filter` and the like). The checks Ott makes only for a
+  prover target come first: the homs of meta productions, the order of
+  rule groups, the types of auxiliary functions. Ott's printers are
+  impure and its definitions come in the order ocamlgraph visits them,
+  which depends on a vertex counter every graph of the run shares;
+  `Haskott.Graph` models the ocamlgraph operations Ott uses, and the
+  printers run in a state monad with Ott's counters, effects in the
+  order OCaml evaluates them. The differential compares the output of
+  each target on every corpus file with `ott -o` (`--target` chooses):
+  all agree byte for byte, as they do under each of Ott's prover
+  options and on the tapl example's Makefile run.
+- Also: `-merge true`, merging the rules, definition classes,
+  definitions and functions of the same name across files (the TeX and
+  prover outputs of the tapl example agree with Ott's); Ott's stop at a
+  rule with no or several conclusions; and its check of the bounds of
+  every rule before TeX output.
+- Not yet done: Twelf output (`.twf`), the OCaml lexer and parser
+  generators (`.mll`, `.mly`, `-ocaml_pp`), `-output_source_locations`,
+  `-writesys`/`-readsys`, and Ott's debugging outputs.
 
 haskott takes Ott's command line for the implemented part: `haskott -i
-FILE... -o OUT.tex|OUT.typ [-tex_filter SRC DST] [-typst_filter SRC DST]
-[-picky_multiple_parses BOOL]
+FILE... -o OUT.tex|OUT.typ|OUT.v|OUT.thy|OUTScript.sml|OUT.lem|OUT.ml
+[-tex_filter SRC DST] [-typst_filter SRC DST] [-coq_filter SRC DST]
+[-isa_filter SRC DST] [-hol_filter SRC DST] [-lem_filter SRC DST]
+[-ocaml_filter SRC DST] [-picky_multiple_parses BOOL] [-merge BOOL]
+[-coq_avoid N] [-coq_expand_list_types BOOL] [-coq_names_in_rules BOOL]
+[-coq_use_filter_fn BOOL] [-coq_lngen BOOL] [-isabelle_primrec BOOL]
+[-isabelle_inductive BOOL] [-isa_syntax BOOL] [-isa_generate_lemmas BOOL]
+[-ocaml_include_terminals BOOL] [-no_rbcatn BOOL]
 [-tex_name_prefix P] [-tex_show_meta BOOL] [-tex_show_categories BOOL]
 [-tex_colour BOOL] [-tex_wrap BOOL] [-tex_suppress_category C]
 [-tex_suppress_ntr N]`. The development subcommands look at one stage
@@ -177,8 +209,9 @@ files and reports every problem with its line and column (`--picky` makes
 several parses of a term an error); `roots` lists the names `rename`
 accepts; `dump` prints the tree after stage one
 and `dump --terms` after the term splice, `showraw` the raw specification
-as Ott prints it, `spec` the checked specification, and `parse FILE
-':root: text'` every parse of a term in Ott's plain form.
+as Ott prints it, `spec` the checked specification, `structure` the
+entries of the prover output in order, and `parse FILE ':root: text'`
+every parse of a term in Ott's plain form.
 
 ## Building and testing
 
