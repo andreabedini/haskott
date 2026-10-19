@@ -8,7 +8,11 @@
 -- the raw parse before anything else, so a prefix match means the two
 -- parses agree; the first differing line is reported otherwise.
 --
--- Usage: haskott-differential [--ott DIR] [--report-ott DIR]
+-- With @--source-locations N@, Ott and haskott print the outputs with
+-- @-output_source_locations N@.
+--
+-- Usage: haskott-differential [--ott DIR] [--report-ott DIR] [--target T]
+-- [--only S] [--source-locations N]
 module Main (main) where
 
 import Control.Monad (forM, unless)
@@ -18,7 +22,9 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import qualified Data.Map.Strict as M
+import Haskott.Load (Source (..))
 import Haskott.Raw (rawDocument)
+import Haskott.SourceLoc (Sources, makeSources)
 import Haskott.Raw.Show (showRaw)
 import Haskott.Spec (Spec (..), Rule (..), Prod (..), Diagnostic (..))
 import Haskott.Spec.Check (checkDocument)
@@ -28,7 +34,7 @@ import Haskott.Defns (isFatalDiagnostic, processDefns)
 import Haskott.Term.Parse (ParsePolicy (..), makeTermParser, parseTerms)
 import Haskott.Term.Requests (TermRequest (..), termRequests)
 import Haskott.Term.Symterm (ppPlainSymterm)
-import Haskott.Tex (Dialect (..), defaultTexOptions, makeTex, quotationParser, texDocument)
+import Haskott.Tex (Dialect (..), TexOptions (..), defaultTexOptions, makeTex, quotationParser, texDocument, withSources)
 import Haskott.Prover
 import Haskott.Term.Grammar (nonterminalCount)
 import Haskott.Term.Parse (termGrammar)
@@ -49,6 +55,7 @@ main = do
   let opt flag def = fromMaybe def (lookup flag (pairs args))
       only = [s | ("--only", s) <- pairs args]
       wanted = [s | ("--target", s) <- pairs args]
+      locations = maybe 0 read (lookup "--source-locations" (pairs args)) :: Int
       proverTargets = [t | t <- [Coq, Isa, Hol, Lem, Twf, Caml], null wanted || T.unpack (targetName t) `elem` wanted]
       ottDir = opt "--ott" (fromMaybe "../ott" envOtt)
       reportDir = opt "--report-ott" (fromMaybe "../haskell-2010-revised-report/formalisation" envReport)
@@ -78,6 +85,7 @@ main = do
         Right tree -> do
           let raw = rawDocument tree
               mine = showRaw raw
+              sources = makeSources [Source file src tree 0]
           (_, out, _) <- readProcessWithExitCode ott ["-i", file, "-showraw", "true"] ""
           let theirs = dropVersionLine (T.pack out)
           case compareRaw rel mine theirs of
@@ -99,9 +107,9 @@ main = do
                               putStrLn (rel ++ ": note: an ambiguous term's first parse differs from Ott's; TeX and Typst output not compared")
                               pure Nothing
                           | otherwise -> do
-                              typ <- compareTex ott Typst rel file spec
-                              tex <- compareTex ott Latex rel file spec
-                              provers <- mapM (\t -> compareProver ott t rel file src spec) proverTargets
+                              typ <- compareTex ott locations sources Typst rel file spec
+                              tex <- compareTex ott locations sources Latex rel file spec
+                              provers <- mapM (\t -> compareProver ott locations sources t rel file src spec) proverTargets
                               pure (combine ([typ, tex] ++ provers))
                   _ -> pure Nothing
   let failures = [f | Just f <- results]
@@ -122,8 +130,8 @@ dropVersionLine t = case T.lines t of
 -- run on the same path, so the header naming the sources agrees. When Ott
 -- fails to produce output (it rejects some specifications only at output
 -- time), the file is reported but not counted as a disagreement.
-compareTex :: FilePath -> Dialect -> FilePath -> FilePath -> Spec -> IO (Maybe String)
-compareTex ott d rel file spec = do
+compareTex :: FilePath -> Int -> Sources -> Dialect -> FilePath -> FilePath -> Spec -> IO (Maybe String)
+compareTex ott locations sources d rel file spec = do
   let tmp = "dist-newstyle" </> "differential-tmp"
   createDirectoryIfMissing True tmp
   let (ext, what) = case d of
@@ -131,7 +139,7 @@ compareTex ott d rel file spec = do
         Typst -> ("typ", "Typst")
       out = tmp </> ("haskott-differential." ++ ext)
   _ <- try (removeFile out) :: IO (Either IOException ())
-  (code, _, err) <- readProcessWithExitCode ott ["-i", file, "-o", out] ""
+  (code, _, err) <- readProcessWithExitCode ott (["-i", file, "-o", out] ++ locationArgs locations) ""
   exists <- doesFileExist out
   if not exists
     then do
@@ -139,8 +147,8 @@ compareTex ott d rel file spec = do
       pure Nothing
     else do
       theirs <- B.readFile out
-      let (env, _, _, processed, _) = makeTex (defaultTexOptions d) False spec
-          mine = TE.encodeUtf8 (texDocument env (T.pack file) processed)
+      let (env, _, _, processed, _) = makeTex (defaultTexOptions d) {optTexSourceLocations = locations} False spec
+          mine = TE.encodeUtf8 (texDocument (withSources sources env) (T.pack file) processed)
       if mine == theirs
         then pure Nothing
         else do
@@ -155,8 +163,8 @@ compareTex ott d rel file spec = do
 
 -- | Compare a prover's output with Ott's, byte for byte, and whether
 -- the two accept the file for the target.
-compareProver :: FilePath -> Target -> FilePath -> FilePath -> T.Text -> Spec -> IO (Maybe String)
-compareProver ott t rel file src spec = do
+compareProver :: FilePath -> Int -> Sources -> Target -> FilePath -> FilePath -> T.Text -> Spec -> IO (Maybe String)
+compareProver ott locations sources t rel file src spec = do
   let tmp = "dist-newstyle" </> "differential-tmp"
   createDirectoryIfMissing True tmp
   let out = tmp </> ("haskottdiff" ++ ext)
@@ -169,7 +177,7 @@ compareProver ott t rel file src spec = do
         Twf -> ".twf"
       what = T.unpack (targetName t)
   _ <- try (removeFile out) :: IO (Either IOException ())
-  (code, stdoutText, _) <- readProcessWithExitCode ott ["-i", file, "-o", out] ""
+  (code, stdoutText, _) <- readProcessWithExitCode ott (["-i", file, "-o", out] ++ locationArgs locations) ""
   exists <- doesFileExist out
   theirs <- if exists && code == ExitSuccess then Just <$> B.readFile out else pure Nothing
   let tp = makeTermParser spec
@@ -183,7 +191,7 @@ compareProver ott t rel file src spec = do
         let job =
               ProverJob
                 { pjTarget = t
-                , pjOptions = defaultProverOptions
+                , pjOptions = defaultProverOptions {optSourceLocations = locations}
                 , pjSpec = spec
                 , pjProcessed = processed
                 , pjInputs = [Input file src 0]
@@ -191,6 +199,7 @@ compareProver ott t rel file src spec = do
                 , pjParse = \root txt -> parseTerms tp root False txt
                 , pjOutputs = [(out, [file])]
                 , pjMerge = False
+                , pjSources = sources
                 }
         (files, _) <- proverOutputs prepared job (prVertex prepared)
         case files of
@@ -210,6 +219,10 @@ compareProver ott t rel file src spec = do
     lastLine' x = case reverse (filter (not . null) (lines x)) of
       (l : _) -> l
       [] -> ""
+
+-- | Ott's option for the source locations, unless they are off.
+locationArgs :: Int -> [String]
+locationArgs n = if n == 0 then [] else ["-output_source_locations", show n]
 
 -- | The disagreements of several comparisons of one file, as one.
 combine :: [Maybe String] -> Maybe String

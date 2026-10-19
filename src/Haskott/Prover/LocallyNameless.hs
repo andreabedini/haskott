@@ -780,9 +780,10 @@ lnOutput env job = do
   c0 <- psVertex <$> get
   let (depsT, c1) = computeDependencies specT0 (targetName (envTarget env)) c0
   modify (\s -> s {psVertex = c1})
-  let envT0 = makeEnv (envTarget env) opts depsT (envAuxfnTypes env) (envQuotation env) specT0
+  let mkEnv sp = (makeEnv (envTarget env) opts depsT (envAuxfnTypes env) (envQuotation env) sp) {envSources = envSources env}
+      envT0 = mkEnv specT0
   relations <- lnTransformRelations env (lnProcessed job)
-  pre <- T.concat <$> mapM (lnEmbed job env) [e | e <- specEmbeds (envSpec env), embedName e == "coq-preamble"]
+  pre <- T.concat <$> mapM (lnEmbed job env) (preambleEmbeds (envSpec env))
   -- the syntax
   let mvds = T.concat (map (ppMetavardefn envT0) (specMetavars specT0))
   rulesTxt <- ppRuleList envT0 (specRules specT0)
@@ -790,9 +791,9 @@ lnOutput env job = do
   lcs <- lcsClasses envT0
   let lcDefnClasses = [DefnClass (pcName pc) "" [] [] dummyRange | PReln pc <- lcs]
       specT = specT0 {specDefnClasses = specDefnClasses specT0 ++ lcDefnClasses}
-      envT = makeEnv (envTarget env) opts depsT (envAuxfnTypes env) (envQuotation env) specT
+      envT = mkEnv specT
       eraseBinders s = s {specRules = [r {ruleProds = [p {prodBindspecs = []} | p <- ruleProds r]} | r <- specRules s]}
-      envErased = makeEnv (envTarget env) opts depsT (envAuxfnTypes env) (envQuotation env) (eraseBinders specT)
+      envErased = mkEnv (eraseBinders specT)
   funcsOpen <- ppOpen envT
   funcsSubrules <- ppSubrules envT (specSubrules specT)
   arities <- ppArities env envT
@@ -825,7 +826,7 @@ lnOutput env job = do
           <> freevarsTxt
           <> bigLineComment env "substitutions"
           <> substsTxt
-  embeds <- T.concat <$> mapM (lnEmbed job env) [e | e <- specEmbeds (envSpec env), embedName e /= "coq-preamble"]
+  embeds <- T.concat <$> mapM (lnEmbed job env) (specEmbeds (envSpec env))
   bumpGrammar specT
   defns <- ppFunOrRelnDefnclassList envT relations
   let infra = lnInfrastructure envT relations

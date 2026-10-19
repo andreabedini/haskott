@@ -52,6 +52,7 @@ library
         Haskott.Raw
         Haskott.Raw.Show
         Haskott.Rename
+        Haskott.SourceLoc
         Haskott.Spec
         Haskott.Spec.Check
         Haskott.Spec.Show

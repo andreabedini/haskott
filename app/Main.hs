@@ -24,6 +24,7 @@ import Haskott.Term.Symterm (Symterm)
 import Haskott.Diagnostics
 import Haskott.Load
 import Haskott.Rename
+import Haskott.SourceLoc (makeSources)
 import Haskott.Raw (rawDocument)
 import Haskott.Raw.Show (showRaw)
 import Haskott.Spec (Diagnostic (..))
@@ -150,6 +151,9 @@ parseOptions = go (Options [] [] [] defaultProverOptions [] [] False False (defa
       "-typst_filter" : s : d : rest -> go o {oFilters = (Typst, s, d) : oFilters o} rest
       "-picky_multiple_parses" : b : rest -> bool b >>= \v -> go o {oPicky = v} rest
       "-merge" : b : rest -> bool b >>= \v -> go o {oMerge = v} rest
+      "-output_source_locations" : n : rest
+        | [(v, "")] <- reads n -> go (tex (prover o (\p -> p {optSourceLocations = v})) (\t -> t {optTexSourceLocations = v})) rest
+        | otherwise -> Left ("expected a number, found " ++ show n)
       "-tex_name_prefix" : p : rest -> go (tex o (\t -> t {optPrefix = T.pack p})) rest
       "-tex_show_meta" : b : rest -> bool b >>= \v -> go (tex o (\t -> t {optShowMeta = v})) rest
       "-tex_show_categories" : b : rest -> bool b >>= \v -> go (tex o (\t -> t {optShowCategories = v})) rest
@@ -195,7 +199,7 @@ ottMain args = do
       sources = T.pack (unwords (oInputs opts))
       report d = let (f, src, d') = locateDiagnostic files d in reportDiagnostic f src d'
       tp = makeTermParser spec
-      envOf d = makeEnv (oTex opts) {optDialect = d} spec (quotationParser policy tp)
+      envOf d = withSources (makeSources files) (makeEnv (oTex opts) {optDialect = d} spec (quotationParser policy tp))
       -- several parses of a term are no error when every target that
       -- compares them (Ott's TeX, not its Typst) prints them the same
       policy
@@ -235,6 +239,7 @@ ottMain args = do
             , pjParse = \root txt -> parseTerms tp root False txt
             , pjOutputs = outputsOf t (oFileArgs opts)
             , pjMerge = oMerge opts
+            , pjSources = makeSources files
             }
         run vertex t = case proverOutputs prepared (job t) vertex of
           Left m -> hPutStrLn stderr ("Error: " ++ T.unpack m) >> exitFailure

@@ -69,6 +69,7 @@ module Haskott.Prover.Pp
   , ppOr
   , bigLineComment
   , printWithComment
+  , sourceLocation
   , auxfnName
   , ppIs
   , pseudoTerminalOfProdName
@@ -90,6 +91,7 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text as T
 import Haskott.Prover.Dependency (IntFunc (..))
 import Haskott.Prover.Types
+import Haskott.SourceLoc
 import Haskott.Spec
 import Haskott.Term.Symterm
 
@@ -200,6 +202,13 @@ bigLineComment env s
 -- | Ott's @print_with_comment@: only when there is something to print.
 printWithComment :: Env -> Text -> Text -> Text -> Text
 printWithComment env s0 c s = if T.null s then "" else s0 <> bigLineComment env c <> s
+
+-- | Ott's @pp_source_location@, when @-output_source_locations@ is at
+-- least the level.
+sourceLocation :: Env -> Int -> SourceLoc -> Text
+sourceLocation env level l
+  | optSourceLocations (envOpts env) >= level = "(* " <> ppSourceLoc l <> " *)\n"
+  | otherwise = ""
 
 ------------------------------------------------------------------------
 -- Homs
@@ -652,8 +661,16 @@ ppNominalProd env p =
 
 -- | Ott's @pp_rule@ for a prover; the Coq one also queues the rule's
 -- decidable equality lemma.
+-- | Ott's @pp_rule@ for a prover, after the rule's location.
 ppRule :: Env -> Rule -> P (Maybe Text)
-ppRule env r = do
+ppRule env r = fmap (located <>) <$> ppRuleBody env r
+  where
+    located = case sourceLocation env 2 (ruleLoc (envSources env) r) of
+      "" -> ""
+      l -> "\n" <> l
+
+ppRuleBody :: Env -> Rule -> P (Maybe Text)
+ppRuleBody env r = do
   let com = ppComStrings env (ruleHoms r) [ppNontermWithSie env [] (ruleName r, [])]
       prods = [s | p <- ruleProds r, Just s <- [ppProd env (ruleName r) p]]
       hidden = ruleMeta r || rulePhantom r

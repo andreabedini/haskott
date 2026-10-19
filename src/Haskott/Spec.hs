@@ -24,6 +24,8 @@ module Haskott.Spec
   , Freevar (..)
   , RootRef (..)
   , Embed (..)
+  , preambleEmbedNames
+  , preambleEmbeds
   , ParsingAnnotation (..)
   , ClassItem (..)
   , DefnClass (..)
@@ -39,6 +41,8 @@ module Haskott.Spec
 
 import Data.Set (Set)
 import Data.Text (Text)
+import qualified Data.Text as T
+import Data.Maybe (fromMaybe)
 import Graft
 import Haskott.Raw (EmbedEl (..), RuleAnnot (..), SemirawRule (..))
 import Haskott.Spec.Suffix
@@ -207,6 +211,20 @@ data Embed = Embed
   , embedRange :: TextRange
   }
   deriving (Eq, Show)
+
+-- | The embeds Ott prints before the rest.
+preambleEmbedNames :: [Text]
+preambleEmbedNames = map T.pack ["tex-preamble", "typst-preamble", "tex-wrap-pre", "tex-wrap-post", "coq-preamble", "isa-preamble", "hol-preamble", "lem-preamble", "ocaml-preamble"]
+
+-- | Ott's @xd_embed_preamble@: the preamble embeds, each named for the
+-- target it is printed for. The specification's embeds keep their names,
+-- so a preamble embed is there too, printed for no target.
+preambleEmbeds :: Spec -> [Embed]
+preambleEmbeds spec =
+  [ e {embedName = fromMaybe (embedName e) (T.stripSuffix (T.pack "-preamble") (embedName e))}
+  | e <- specEmbeds spec
+  , embedName e `elem` preambleEmbedNames
+  ]
 
 data ParsingAnnotation = ParsingAnnotation
   { paLeft :: Text

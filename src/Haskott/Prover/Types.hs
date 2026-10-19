@@ -63,6 +63,7 @@ import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Haskott.SourceLoc (Sources, noSources)
 import Haskott.Spec
 import Haskott.Term.Symterm (Ste, Symterm)
 
@@ -92,6 +93,9 @@ data ProverOptions = ProverOptions
   , optIsaGenerateLemmas :: Bool
   , optCamlIncludeTerminals :: Bool
   , optNoRbcatn :: Bool
+  , optSourceLocations :: Int
+  -- ^ @-output_source_locations@: 1 for the rules of the definitions, 2
+  -- for the grammar too
   }
 
 defaultProverOptions :: ProverOptions
@@ -108,6 +112,7 @@ defaultProverOptions =
     , optIsaGenerateLemmas = True
     , optCamlIncludeTerminals = False
     , optNoRbcatn = True
+    , optSourceLocations = 0
     }
 
 -- | Ott's mutable state while printing.
@@ -229,6 +234,8 @@ data Env = Env
   -- set: the printers of context rules need it)
   , envLoc :: Maybe (Int, Int) -> Text
   -- ^ a range of the sources as Ott prints a location
+  , envSources :: Sources
+  -- ^ the sources, for the locations of @-output_source_locations@
   }
 
 makeEnv :: Target -> ProverOptions -> Deps -> [(Text, ([Text], RootRef))] -> (Text -> Symterm) -> Spec -> Env
@@ -250,6 +257,7 @@ makeEnv t opts deps axs quotation spec =
     , envQuotation = quotation
     , envParse = \_ _ -> []
     , envLoc = const ""
+    , envSources = noSources
     }
 
 isCoq, isIsa, isHol, isLem, isCaml, isTwf :: Env -> Bool

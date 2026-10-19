@@ -24,6 +24,7 @@ import Haskott.Prover.Dependency
 import Haskott.Prover.ExpandLists (ppListRule)
 import Haskott.Prover.Pp
 import Haskott.Prover.Types
+import Haskott.SourceLoc (druleLoc)
 import Haskott.Spec
 import Haskott.Term.Symterm
 
@@ -92,7 +93,14 @@ bounds env sts = either (\m -> failP ("\nError in generating output:\n" <> m <> 
 
 -- | Ott's @pp_drule@ for a prover.
 ppDrule :: Env -> Drule -> P Text
-ppDrule env dr = do
+ppDrule env dr = (located <>) <$> ppDruleBody env dr
+  where
+    located = case sourceLocation env 1 (druleLoc (envSources env) (druleRange dr)) of
+      "" -> ""
+      l -> "\n" <> l
+
+ppDruleBody :: Env -> Drule -> P Text
+ppDruleBody env dr = do
   (de@(de1, de2), de3) <- bounds env (druleConclusion dr : map snd (drulePremises dr))
   let coq = isCoq env
       expand = optCoqExpandLists (envOpts env)
