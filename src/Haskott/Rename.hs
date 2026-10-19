@@ -359,7 +359,7 @@ ownerIdents c =
     | d <- Cursor.descendants c
     , Token t <- [Cursor.green d]
     , Green.tokenKind t `elem` [K.Element, K.QuotedElement] || (Green.tokenKind t == K.Ident && fmap Cursor.kind (Cursor.parent d) == Just K.Name)
-    , K.Hom `notElem` map Cursor.kind (drop 1 (Cursor.ancestors d))
+    , K.Hom `notElem` map Cursor.kind (Cursor.ancestors d)
     ]
 
 -- | The owners of the productions and judgement forms of a tree, by the

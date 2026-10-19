@@ -35,7 +35,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Graft (Position (..))
+import Graft (Utf16Position (..), Utf8Position (..))
 import qualified Graft.Green as Green
 import qualified Graft.LineIndex as LineIndex
 import qualified Graft.Range as Range
@@ -201,7 +201,7 @@ toDiagnostics src = map diagnostic
   where
     index = LineIndex.fromText src
     position off = case LineIndex.utf16Position off index of
-      Just (Position l c) -> L.Position (fromIntegral l) (fromIntegral c)
+      Just (Utf16Position l c) -> L.Position (fromIntegral l) (fromIntegral c)
       Nothing -> L.Position 0 0
     diagnostic p =
       let d = problemDiagnostic p
@@ -264,14 +264,14 @@ located uri pos = case L.uriToFilePath uri of
       Left _ -> Nothing
 
 offsetOf :: Text -> L.Position -> Maybe Int
-offsetOf src (L.Position l c) = fromIntegral <$> LineIndex.fromUtf16Position (Position (fromIntegral l) (fromIntegral c)) (LineIndex.fromText src)
+offsetOf src (L.Position l c) = fromIntegral <$> LineIndex.fromUtf16Position (Utf16Position (fromIntegral l) (fromIntegral c)) (LineIndex.fromText src)
 
 rangeOf :: Text -> (Int, Int) -> L.Range
 rangeOf src (a, b) = L.Range (position a) (position b)
   where
     index = LineIndex.fromText src
     position off = case LineIndex.utf16Position (fromIntegral off) index of
-      Just (Position l c) -> L.Position (fromIntegral l) (fromIntegral c)
+      Just (Utf16Position l c) -> L.Position (fromIntegral l) (fromIntegral c)
       Nothing -> L.Position 0 0
 
 locations :: [(FilePath, Text, (Int, Int))] -> [L.Location]
@@ -462,7 +462,7 @@ renameAcross project snapshot start old new = reach [] start >>= merge
       fs -> "\n(in the specification of " <> T.intercalate ", " (map (T.pack . takeFileName) fs) <> ")"
     describe pr = case Rename.problemWhere pr of
       Just (f, src, off) -> case LineIndex.utf8Position (fromIntegral off) (LineIndex.fromText src) of
-        Just (Position l c) -> T.pack (takeFileName f ++ ":" ++ show (l + 1) ++ ":" ++ show (c + 1) ++ ": ") <> Rename.problemMessage pr
+        Just (Utf8Position l c) -> T.pack (takeFileName f ++ ":" ++ show (l + 1) ++ ":" ++ show (c + 1) ++ ": ") <> Rename.problemMessage pr
         Nothing -> T.pack (takeFileName f ++ ": ") <> Rename.problemMessage pr
       Nothing -> Rename.problemMessage pr
     version f = case M.lookup f snapshot of
@@ -500,8 +500,8 @@ semanticTokens :: Text -> [(Int, Int, Class)] -> [L.SemanticTokenAbsolute]
 semanticTokens src tokens =
   [ L.SemanticTokenAbsolute (fromIntegral l) (fromIntegral c) (fromIntegral (c' - c)) (tokenType cls) []
   | (a, b, cls) <- tokens
-  , Just (Position l c) <- [LineIndex.utf16Position (fromIntegral a) index]
-  , Just (Position l' c') <- [LineIndex.utf16Position (fromIntegral b) index]
+  , Just (Utf16Position l c) <- [LineIndex.utf16Position (fromIntegral a) index]
+  , Just (Utf16Position l' c') <- [LineIndex.utf16Position (fromIntegral b) index]
   , l == l'
   ]
   where
