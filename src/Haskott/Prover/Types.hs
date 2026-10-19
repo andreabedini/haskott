@@ -50,7 +50,9 @@ module Haskott.Prover.Types
   , isHol
   , isLem
   , isCaml
+  , isTwf
   , freshC
+  , freshNl
   , addToLib
   ) where
 
@@ -64,7 +66,7 @@ import qualified Data.Text as T
 import Haskott.Spec
 import Haskott.Term.Symterm (Ste, Symterm)
 
-data Target = Coq | Isa | Hol | Lem | Caml
+data Target = Coq | Isa | Hol | Lem | Caml | Twf
   deriving (Eq, Ord, Show)
 
 -- | Ott's @hom_name_for_pp_mode@.
@@ -75,6 +77,7 @@ targetName t = case t of
   Hol -> "hol"
   Lem -> "lem"
   Caml -> "ocaml"
+  Twf -> "twf"
 
 data ProverOptions = ProverOptions
   { optCoqExpandLists :: Bool
@@ -132,6 +135,10 @@ data PState = PState
   -- back end
   , psOpeningVars :: [Ste]
   -- ^ @Ln_transform.opening_vars@: the variables a term is opened with
+  , psTwfCurrentDefn :: Text
+  -- ^ @twf_current_defn@: the definition whose rules are being printed
+  , psNl :: !Int
+  -- ^ the counter of @Auxl.fresh_nl@, naming Twelf lists
   }
 
 initialPState :: Int -> PState
@@ -150,6 +157,8 @@ initialPState vertex =
     , psCounters = M.empty
     , psCoqLocallyNameless = False
     , psOpeningVars = []
+    , psTwfCurrentDefn = ""
+    , psNl = 0
     }
 
 -- | Printing, which fails as Ott does when it finds a problem only at
@@ -169,6 +178,14 @@ freshC = do
   let n = psC s + 1
   put s {psC = n}
   pure n
+
+-- | Ott's @Auxl.fresh_nl@: @NL1@, @NL2@, ...
+freshNl :: P Text
+freshNl = do
+  s <- get
+  let n = psNl s + 1
+  put s {psNl = n}
+  pure ("NL" <> T.pack (show n))
 
 -- | Ott's @add_to_lib@.
 addToLib :: Text -> Text -> P ()
@@ -235,12 +252,13 @@ makeEnv t opts deps axs quotation spec =
     , envLoc = const ""
     }
 
-isCoq, isIsa, isHol, isLem, isCaml :: Env -> Bool
+isCoq, isIsa, isHol, isLem, isCaml, isTwf :: Env -> Bool
 isCoq = (== Coq) . envTarget
 isIsa = (== Isa) . envTarget
 isHol = (== Hol) . envTarget
 isLem = (== Lem) . envTarget
 isCaml = (== Caml) . envTarget
+isTwf = (== Twf) . envTarget
 
 -- | A nonterminal or metavariable with its suffix.
 type NtMv = (RootRef, Suffix)

@@ -23,7 +23,7 @@ module Haskott.Prover.Substs
   , ppListSimpLemmas
   ) where
 
-import Control.Monad (forM, when)
+import Control.Monad (forM, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, modify, put, runStateT)
 import qualified Data.Map.Strict as M
@@ -130,6 +130,7 @@ ppListMinus env = case envTarget env of
   Isa -> addToLib "list_minus" ppListMinusIsa
   Hol -> pure ()
   Coq -> ppListMem env >> addToLib "list_minus" ppListMinusCoq
+  Twf -> failP "internal (Twelf): pp_list_minus"
 
 ppListMinus2 :: Env -> P ()
 ppListMinus2 env = when (isCoq env) (ppListMem env >> addToLib "list_minus2" ppListMinus2Coq)
@@ -236,6 +237,24 @@ isaListNameFlag r = scan (concatMap prodElements (filter (not . prodMeta) (ruleP
       _ : xs -> scan xs
     scanInt x xs = or [lbElements lb == x | ListForm lb <- xs]
 
+-- | Ott's @Auxl.insert_append@ for Twelf: each list named by a fresh
+-- @NL@ variable, appended with @append/natlist@ premises.
+insertAppendTwf :: [Text] -> P Text
+insertAppendTwf l = case l of
+  [] -> pure "natlist/nil"
+  [x] -> pure x
+  _ -> do
+    resultNl <- mapM (const freshNl) (drop 1 l)
+    listNl <- mapM (const freshNl) l
+    let internal current rs ls = case (rs, ls) of
+          ([], _) -> " <- append/natlist " <> T.unwords ls <> " " <> current
+          (r' : rt, lh : lt) -> " <- append/natlist " <> lh <> " " <> current <> " " <> r' <> internal r' rt lt
+          (_ : _, []) -> error "Haskott.Prover.Substs: insert_append"
+        final = case resultNl of
+          r' : rt -> internal r' rt listNl
+          [] -> error "Haskott.Prover.Substs: insert_append"
+    pure (last resultNl <> " <- " <> T.intercalate " <- " (zipWith (\x nl -> x <> " " <> nl) l listNl) <> final)
+
 -- | Ott's @Auxl.insert_append@ for Coq.
 insertAppend :: [Text] -> Text
 insertAppend l = case l of
@@ -324,6 +343,8 @@ ppAuxfns env axs = do
   pure (collapse env (IntFuncs (concat funcs) Nothing))
 
 ppAuxfnClauses :: Env -> Text -> Text -> RootRef -> P [IntFunc]
+ppAuxfnClauses env _ _ _
+  | isTwf env = failP "internal (Twelf): pp_auxfn_clauses"
 ppAuxfnClauses env f ntr ntmvr = do
   let r = ruleOfNtr env ntr
       ntrn = ppNontermrootTy env ntr
@@ -437,6 +458,15 @@ ppSubstRule env sb domain r = do
           , ""
           )
         Hol -> ("", "", "")
+        Twf ->
+          ( ident <> " : "
+              <> ( if sbMultiple sb
+                     then " <<<FZ mult not impl>> "
+                     else tyThis <> " -> " <> tyThat <> " -> " <> tyR <> " -> " <> tyR <> " -> type.\n"
+                 )
+          , ""
+          , ""
+          )
         _ ->
           ( ident <> args <> " (" <> ppNonterm env inVar <> ":" <> tyR <> ")"
           , ""
@@ -454,14 +484,23 @@ ppSubstProd env sc = do
         _ -> []
   (de, _) <- boundExtraction' env [lhsSt]
   lhsPat <- ppSymterm env [] de lhsSt
-  let lhs
-        | isIsa env || isHol env =
+  let one rhs = [("", rhs)]
+      lhs
+        | isIsa env || isHol env || isTwf env =
             (if sbMultiple sb then scSub sc else ppNonterm env (scThis sc) <> " " <> ppNtOrMv env (scThat sc)) <> " " <> lhsPat
         | otherwise = lhsPat
       tyThat = ppNtOrMvRootTy env (sbThat sb)
       thisS = ppNonterm env (scThis sc)
       singleton thingS
+        | isTwf env =
+            pure $
+              if sbMultiple sb
+                then one "<<<multiple subst not implemented>>>"
+                else [("/same", thisS), ("/diff", lhsPat <> " <- neq " <> thingS <> " " <> ppNtOrMv env (scThat sc))]
+        | otherwise = one <$> singleton' thingS
+      singleton' thingS
         | sbMultiple sb = case envTarget env of
+            Twf -> error "Haskott.Prover.Substs: singleton'"
             Isa -> do
               ppListAssoc env
               pure ("(case list_assoc " <> thingS <> " " <> scSub sc <> " of None => " <> lhsPat <> " | Some " <> thisS <> " => " <> thisS <> ")")
@@ -488,30 +527,60 @@ ppSubstProd env sc = do
           let ntS = case lhsEs of
                 [SteSt (StNonterm _ nt0)] -> ppNonterm env nt0
                 _ -> error "internal error: lhs_stnb not of the right form"
-          rhs <- singleton ntS
-          pure [([], (prodName p, lhs, rhs), [])]
+          rhss <- singleton ntS
+          pure [([], (prodName p <> pfx, lhs, rhs), []) | (pfx, rhs) <- rhss]
     [Metavar mvrp _ _]
       | scRule sc == sbThis sb && sbThat sb == Mvr mvrp -> do
           let mvS = case lhsEs of
                 [SteMetavar _ mv0] -> ppMetavar env mv0
                 _ -> error "internal error: lhs_stnb not of the right form"
-          rhs <- singleton mvS
-          pure [([], (prodName p, lhs, rhs), [])]
+          rhss <- singleton mvS
+          pure [([], (prodName p <> pfx, lhs, rhs), []) | (pfx, rhs) <- rhss]
     _ -> do
       resetCounter "subst_split_inprod"
       (results, deps) <- runD (mapM (ppSubstSte env sc [] de) lhsEs)
       let body = map fst results
           listFuncs = concatMap snd results
           pn = nodePn lhsSt
-          rhs = case envTarget env of
-            Caml -> capitalize pn <> " " <> (case body of [] -> ""; [x] -> x; _ -> "(" <> T.intercalate "," body <> ")")
-            Lem -> capitalize pn <> " " <> (case body of [] -> ""; [x] -> x; _ -> T.unwords body)
-            _ -> pn <> " " <> T.unwords body
+      rhs <- case envTarget env of
+        Caml -> pure (capitalize pn <> " " <> (case body of [] -> ""; [x] -> x; _ -> "(" <> T.intercalate "," body <> ")"))
+        Lem -> pure (capitalize pn <> " " <> (case body of [] -> ""; [x] -> x; _ -> T.unwords body))
+        Twf -> twfSubstRhs pn body lhsPat
+        _ -> pure (pn <> " " <> T.unwords body)
       pure [(deps, (prodName p, lhs, rhs), listFuncs)]
   where
     nodePn st = case st of
       StNode _ pn _ -> pn
       _ -> ""
+
+-- | Ott's Twelf right-hand side of a substitution clause: each argument
+-- the substitution changes is named by a fresh @NL@ variable, computed
+-- by a premise.
+twfSubstRhs :: Text -> [Text] -> Text -> P Text
+twfSubstRhs pn body lhsPat = do
+  let comp = drop 1 (strSplit lhsPat)
+  if length comp /= length body
+    then failP "Fatal error: exception Invalid_argument(\"List.map2\")"
+    else pure ()
+  freshVars <- forM (zip body comp) $ \(x, y) -> if x == y then pure "" else freshNl
+  let pat = [if x == y then y else v | ((x, y), v) <- zip (zip body comp) freshVars]
+      premise (x, y) v
+        | x == y = pure Nothing
+        | T.null x = failP "Fatal error: exception Invalid_argument(\"String.sub / Bytes.sub\")"
+        | otherwise = pure (Just (T.init x <> " " <> v <> ")"))
+  premises <- catMaybes <$> zipWithM premise (zip body comp) freshVars
+  pure ("(" <> pn <> " " <> T.unwords pat <> ")" <> " <- " <> T.intercalate " <- " premises)
+  where
+    -- @Str.split (Str.regexp "(\\| \\|)")@: a delimiter at either end
+    -- does not delimit an empty string
+    strSplit t =
+      let ps = T.split (\c -> c == '(' || c == ' ' || c == ')') t
+          ps' = case ps of
+            "" : more -> more
+            _ -> ps
+       in case reverse ps' of
+            "" : more -> reverse more
+            _ -> ps'
 
 requireLocallyNameless :: Env -> Bool
 requireLocallyNameless env = any (\md -> any ((== "repr-locally-nameless") . fst) (mvdHoms md)) (specMetavars (envSpec env))
@@ -550,6 +619,7 @@ ppSubstNonterm env sc sie de ntrp nt = do
               ppListMem env
               (m, _, _) <- ppMse env sie de False "" (Just (sbThat sb)) bound
               pure ("list_mem " <> "eq_" <> tyThat <> " " <> thatS <> " " <> m)
+            Twf -> pure "<<< mem FZ no idea >>>"
           isEmpty = case bound of
             Empty -> True
             _ -> False
@@ -558,7 +628,8 @@ ppSubstNonterm env sc sie de ntrp nt = do
           let depName = ppNontermroot env (promoteNtr env ntrp)
               sname = substName (sbName sb) depName
           addDep sname
-          filtered <-
+          if isTwf env then pure "<<< filter FZ no idea >>>" else do
+           filtered <-
             if isEmpty
               then pure (scSub sc)
               else case envTarget env of
@@ -577,7 +648,7 @@ ppSubstNonterm env sc sie de ntrp nt = do
                       (m, _, _) <- liftP (ppMse env sie de False "" (Just (sbThat sb)) bound)
                       pure ("(list_minus2 " <> "eq_" <> tyThat <> " " <> scSub sc <> " " <> m <> ")")
                 _ -> (\t -> "(List.filter " <> "(fun (" <> thatS <> "," <> thisS <> ") -> " <> "not(" <> t <> ")" <> ")" <> " " <> scSub sc <> ")") <$> thatInBound
-          pure ("(" <> sname <> " " <> filtered <> " " <> ntS <> ")")
+           pure ("(" <> sname <> " " <> filtered <> " " <> ntS <> ")")
         else do
           let ident = ppNontermroot env (promoteNtr env ntrp)
               sname = substName (sbName sb) ident
@@ -625,6 +696,7 @@ ppSubstListBody env sc sie de bound els = do
           | otherwise -> pure ("(map (fun (pat_:" <> de1CoqTypeOfPattern de1i <> ") => match pat_ with " <> pat <> " => " <> ppBody <> " end) " <> cid <> ")", [])
         Caml -> pure ("(List.map (fun " <> pat <> " -> " <> ppBody <> ") " <> cid <> ")", [])
         Lem -> pure (" (List.map (fun " <> pat <> " -> " <> ppBody <> ") " <> cid <> ")", [])
+        Twf -> liftP (failP "internal (Twelf): make_aux_funcs")
 
 substHeaderOf :: Env -> Substitution -> Text -> Text
 substHeaderOf env sb typ
@@ -638,6 +710,7 @@ makeAuxFuncsList env sc els commonLhs = do
       ident = substName (sbName sb) nm <> "_list"
       depId0 = substName (sbName sb) nm
   case envTarget env of
+    Twf -> failP "internal (Twelf): make_aux_func_list"
     Coq
       | optCoqExpandLists (envOpts env) -> do
           let suf = "list_" <> nm
@@ -773,6 +846,7 @@ ppFreevarRule env fv domain r = do
           )
         Isa -> (fvName' (fvName fv) (ppNontermroot env (ruleName r)) <> " :: \"" <> tyR <> " => " <> tyThat <> (if hasIsaSetHom fv then " set" else " list") <> "\"\n", "", "")
         Hol -> ("", "", "")
+        Twf -> (fvName' (fvName fv) (ruleName r) <> " : " <> tyR <> " -> " <> "natlist -> type.\n", "", "")
         _ ->
           ( fvName' (fvName fv) (ppNontermroot env (ruleName r)) <> " (" <> ppNonterm env freshVar <> ":" <> tyR <> ") "
           , ""
@@ -795,6 +869,7 @@ ppFreevarProd env fv domain flag rnn p = do
         let rhs
               | isIsa env && hasIsaSetHom fv = "{" <> thingS <> "}"
               | isCoq env = if ln then "{{" <> thingS <> "}}" else "(cons " <> thingS <> " nil)"
+              | isTwf env = "(natlist/cons " <> thingS <> " natlist/nil)"
               | otherwise = "[" <> thingS <> "]"
          in pure ([], (prodName p, lhs, rhs), [])
   case prodElements p of
@@ -810,16 +885,18 @@ ppFreevarProd env fv domain flag rnn p = do
       (results, deps) <- runD (mapM (ppFvSte env fv domain rnn p [] de flag) lhsEs)
       let elements = catMaybes (map fst results)
           funcs = concatMap snd results
-          rhs = case elements of
-            []
-              | isIsa env && hasIsaSetHom fv -> "{}"
-              | isCoq env -> if ln then "{}" else "nil"
-              | otherwise -> "[]"
-            _ -> case envTarget env of
-              Isa | hasIsaSetHom fv -> T.intercalate " \\<union> " elements
-              Hol -> T.intercalate " ++ " elements
-              Coq -> if ln then T.intercalate " \\u " elements else insertAppend elements
-              _ -> T.intercalate (listAppend env) elements
+      rhs <- case elements of
+        []
+          | isIsa env && hasIsaSetHom fv -> pure "{}"
+          | isCoq env -> pure (if ln then "{}" else "nil")
+          | isTwf env -> pure "natlist/nil"
+          | otherwise -> pure "[]"
+        _ -> case envTarget env of
+          Isa | hasIsaSetHom fv -> pure (T.intercalate " \\<union> " elements)
+          Hol -> pure (T.intercalate " ++ " elements)
+          Coq -> pure (if ln then T.intercalate " \\u " elements else insertAppend elements)
+          Twf -> insertAppendTwf elements
+          _ -> pure (T.intercalate (listAppend env) elements)
       pure (deps, (prodName p, lhs, rhs), funcs)
 
 ppFvSte :: Env -> Freevar -> [Text] -> Text -> Prod -> Suffix -> De -> Bool -> Ste -> D (Maybe Text, [IntFunc])
@@ -837,13 +914,19 @@ ppFvNonterm env fv domain p sie de ntrp nt = do
       then do
         let ident = ppNontermroot env ntrp
         addDep (fvName' (fvName fv) ident)
-        pure (Just ("(" <> fvName' (fvName fv) ident <> " " <> ntS <> ")"))
+        let call = fvName' (fvName fv) ident <> " " <> ntS
+        pure (Just (if isTwf env then call else "(" <> call <> ")"))
       else pure Nothing
   let bound = glommedBoundThings env p (fvThat fv) nt
   case (recursive, bound) of
     (Nothing, _) -> pure Nothing
     (Just s, Empty) -> pure (Just s)
     (Just s, _)
+      | isTwf env -> do
+          result <- liftP freshNl
+          interm <- liftP freshNl
+          m <- liftP (ppMseString env sie de bound)
+          pure (Just (result <> " <- " <> s <> " " <> interm <> " <- " <> "list_minus/natlist " <> interm <> " " <> m <> " " <> result))
       | isIsa env && hasIsaSetHom fv -> (\m -> Just ("(" <> s <> " - set " <> m <> ")")) <$> liftP (ppMseString env sie de bound)
       | otherwise -> do
           liftP (ppListMinus env)
@@ -852,6 +935,8 @@ ppFvNonterm env fv domain p sie de ntrp nt = do
           pure (Just ("(list_minus " <> eq <> s <> " " <> m <> ")"))
 
 ppFvListBody :: Env -> Freevar -> [Text] -> Text -> Prod -> Suffix -> De -> Bool -> Bound -> [Ste] -> D (Maybe Text, [IntFunc])
+ppFvListBody env _ _ _ _ _ _ _ _ _
+  | isTwf env = liftP (failP "internal (Twelf): pp_fv_symterm_list_body")
 ppFvListBody env fv domain rnn p sie de flag bound els = do
   let de1i = de1Lookup (fst de) bound
       sie' = SiVar "_" 0 : sie
@@ -869,6 +954,7 @@ ppFvListBody env fv domain rnn p sie de flag bound els = do
   case bodyElements of
     [] -> pure (Just (if isCoq env then "nil" else if isIsa env && hasIsaSetHom fv then "{}" else "[]"), funcs)
     _ -> case envTarget env of
+      Twf -> error "Haskott.Prover.Substs: pp_fv_symterm_list_body"
       Isa
         | optIsaPrimrec opts -> do
             let args = T.intercalate "_" [ppNtOrMvWithSie env (SiVar "" 0 : sie) x | (x, _) <- de1Ntmvsns de1i]

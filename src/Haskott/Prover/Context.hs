@@ -49,6 +49,7 @@ ppRuleContext env cr = do
     Isa -> pure (ident <> " :: \"" <> ty (crNtr cr) <> " => " <> ty (crHole cr) <> " => " <> ty (crTarget cr) <> "\"\n", "", "")
     Hol -> pure ("", "", "")
     Lem -> failP "LemTODO: context rules are not supported in the Lem back end"
+    Twf -> failP "internal (Twelf): pp_rule_context"
     Caml ->
       pure
         ( ident <> " (" <> ctxVar <> ":" <> ty (crNtr cr) <> ") (" <> fakeHoleVar <> ":" <> ty (crHole cr) <> ")"

@@ -44,7 +44,8 @@ nonFreeNtrs env srs =
 -- | Ott's @pp_subntr@.
 ppSubntr :: Env -> (Text, Text, (Text, Suffix)) -> Text
 ppSubntr env (ntrl, ntru, (ntr', suff)) =
-  let s = ppIs ntrl ntru <> " " <> hideIsaTrailingUnderscore env (ntr' <> ppSuffixWithSie sieProject suff)
+  let ntr'' = if isTwf env then T.toUpper ntr' else ntr'
+      s = ppIs ntrl ntru <> " " <> hideIsaTrailingUnderscore env (ntr'' <> ppSuffixWithSie sieProject suff)
    in if isCoq env && not (optCoqExpandLists (envOpts env)) then "Is_true (" <> s <> ")" else s
 
 -- | Ott's @pp_listsubntr@.
@@ -67,6 +68,7 @@ ppListsubntr env listsubntrs =
                 "(Forall (fun (tmp_:" <> coqType <> ") => match tmp_ with " <> pattern <> " => " <> sub <> " end) " <> listArg <> ")"
             | otherwise -> "(Forall (fun (" <> pattern <> ":" <> coqType <> ") => " <> sub <> ") " <> listArg <> ")"
           Caml -> error "Haskott.Prover.Defns: pp_listsubntr"
+          Twf -> error "Haskott.Prover.Defns: pp_listsubntr"
   ]
 
 -- | Ott's @collapse_quantifications@: @(e1:term) (e2:term)@ becomes
@@ -121,6 +123,9 @@ ppDrule env dr = do
       listSubntrs = [(subntrsOf (de1Ntmvsns i), de1CompoundId i, de1Pattern i, de1CoqTypeOfPattern i) | (_, i) <- de1]
       subntrs = map (ppSubntr env) nonlistSubntrs ++ ppListsubntr env listSubntrs
       hyps = subntrs ++ unnamed
+  if isTwf env && any (\(xs, _, _, _) -> not (null xs)) listSubntrs
+    then failP "internal (Twelf): pp_listsubntr"
+    else pure ()
   quantified <- extractQuantifiedProofAssistantVars env de1 de2 de3
   let name = druleName dr
   case envTarget env of
@@ -161,6 +166,9 @@ ppDrule env dr = do
                   <> ","
       pure ("\n | " <> name <> " : " <> quant <> "\n     " <> nlh <> T.concat [x <> " ->\n     " | x <- hyps] <> conclusion)
     Caml -> pure ""
+    Twf -> do
+      current <- psTwfCurrentDefn <$> get
+      pure (current <> "/" <> name <> ": " <> conclusion <> T.concat [" <- " <> h | h <- hyps] <> ".\n")
   where
     removeDupl l = case l of
       [] -> []
@@ -178,8 +186,10 @@ ppDefn env wrapper universe d = do
         Hol -> "\n"
         Lem -> "and\n"
         _ -> ""
+  if isTwf env then modify (\s -> s {psTwfCurrentDefn = pdName d}) else pure ()
   printed <- mapM (ppDrule env) rules
   case envTarget env of
+    Twf -> pure ("%% defn " <> pdName d <> "\n\n" <> T.concat printed)
     Coq -> do
       let es = prodElements (prodOfProdname env (wrapper <> pdName d))
           ss = mapMaybe (ppElement env [] True) es
@@ -234,6 +244,18 @@ ppDefnclass env pc = do
       newly <- psCoqListAuxNewlyDefined <$> get
       pure ("\n(* defns " <> pcName pc <> " *)\nInductive " <> T.intercalate "\nwith " bodies <> T.concat newly <> ".\n")
     Caml -> pure ""
+    Twf -> do
+      if any (any twfUnsupportedElement . prodElements . prodOfProdname env . (wrapper <>) . pdName) defns
+        then twelfFail
+        else pure ()
+      let twfType d = case typeSs d of
+            [t] -> t
+            ts -> T.intercalate " -> " ts
+      bodies <- mapM (ppDefn env wrapper universe) defns
+      pure $
+        "%% defns " <> pcName pc <> "\n\n"
+          <> T.concat [wrapper <> pdName d <> " : " <> twfType d <> " -> type.\n" | d <- defns]
+          <> T.concat bodies
 
 ------------------------------------------------------------------------
 -- Functions
@@ -281,6 +303,7 @@ fundefnToIntFunc env deps pf = do
   header <- case envTarget env of
     Hol -> pure (Just ("", "", ""))
     Lem -> failP "LemTODO: functions are not supported in the Lem back end"
+    Twf -> pure Nothing
     Coq -> do
       let structOn = case lookup "coq-struct" (fdHoms fd) of
             Just [HomIndex i] -> "{struct x" <> T.pack (show (i + 1)) <> "} "
@@ -308,7 +331,9 @@ fundefnToIntFunc env deps pf = do
 
 -- | Ott's @pp_fundefnclass@ for a prover.
 ppFundefnclass :: Env -> ProcessedFunClass -> P Text
-ppFundefnclass env pfc = do
+ppFundefnclass env pfc
+ | isTwf env = pure ""
+ | otherwise = do
   let fc = funClassOf env (pfcName pfc)
       proofOf hn = case lookup hn (fcHoms fc) of
         Just [HomString s] -> Just s
@@ -330,7 +355,11 @@ ppFunOrRelnDefnclassList env items = do
   bodies <- forM items $ \it -> case it of
     PReln pc -> ppDefnclass env pc
     PFuns pfc -> ppFundefnclass env pfc
-  pure (listRules <> (if isCoq env then "(* definitions *)\n" else "(** definitions *)\n") <> T.concat bodies)
+  let header
+        | isCoq env = "(* definitions *)\n"
+        | isTwf env = "%%% definitions %%%\n\n"
+        | otherwise = "(** definitions *)\n"
+  pure (listRules <> header <> T.concat bodies)
 
 -- | Ott's @pp_auxiliary_list_rules@: with expanded list types, the list
 -- types the dot forms of the rules need, each once.

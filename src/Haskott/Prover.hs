@@ -30,6 +30,7 @@ targetOfOutput f
   | ".thy" `isSuffixOf` f = Just Isa
   | ".sml" `isSuffixOf` f = Just Hol
   | ".lem" `isSuffixOf` f = Just Lem
+  | ".twf" `isSuffixOf` f = Just Twf
   | ".ml" `isSuffixOf` f = Just Caml
   | otherwise = Nothing
 

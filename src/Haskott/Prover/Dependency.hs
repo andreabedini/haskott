@@ -171,6 +171,7 @@ collapse env funcs0 =
         Lem -> each "" (\_ (_, l, r) -> "   | " <> l <> " -> " <> r <> "\n") FooterEmpty
         Coq -> each "" (\_ (_, l, r) -> "  | " <> l <> " => " <> r <> "\n") FooterEmpty
         Caml -> each "" (\_ (_, l, r) -> "  | " <> l <> " -> " <> r <> "\n") FooterEmpty
+        Twf -> each "" (\i (pfx, l, r) -> i <> "/" <> pfx <> " : " <> i <> " " <> l <> " " <> r <> ".\n") FooterEmpty
 
 buildFooter :: Maybe Text -> Footer
 buildFooter = maybe FooterEmpty FooterProof
@@ -320,8 +321,14 @@ printFuncs env (sorting, refl) = case envTarget env of
   Coq -> T.concat (map coqBlock sorting)
   Caml -> T.concat (map camlBlock sorting)
   Lem -> T.concat (map lemBlock sorting)
+  Twf -> T.concat (map twfBlock sorting)
   where
     opts = envOpts env
+    twfBlock block =
+      T.concat [h1 <> h2 <> h3 | (_, ((h1, h2, h3), _, _)) <- block]
+        <> "\n"
+        <> T.concat [s | (_, (_, s, _)) <- block]
+        <> "\n"
     isaBlock block =
       (if optIsaPrimrec opts then "primrec\n" else "fun\n")
         <> T.intercalate "and " [h1 <> h2 <> h3 | (_, ((h1, h2, h3), _, _)) <- block]

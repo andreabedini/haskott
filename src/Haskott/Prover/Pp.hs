@@ -73,6 +73,9 @@ module Haskott.Prover.Pp
   , ppIs
   , pseudoTerminalOfProdName
   , removeDuplicates
+  , twelfNotImplemented
+  , twelfFail
+  , twfUnsupportedElement
   ) where
 
 import Control.Monad (forM)
@@ -95,6 +98,20 @@ import Haskott.Term.Symterm
 
 oops :: String -> a
 oops m = error ("Haskott.Prover.Pp: " ++ m)
+
+-- | Ott's @TwelfNotImplemented@: what the Twelf back end does not print,
+-- for which Ott stops with an uncaught exception.
+twelfNotImplemented :: a
+twelfNotImplemented = error "Fatal error: exception Grammar_pp.TwelfNotImplemented"
+
+twelfFail :: P a
+twelfFail = failP "Fatal error: exception Grammar_pp.TwelfNotImplemented"
+
+-- | Whether Ott's @pp_element@ raises @TwelfNotImplemented@ on an element.
+twfUnsupportedElement :: Element -> Bool
+twfUnsupportedElement e = case e of
+  ListForm _ -> True
+  _ -> False
 
 -- | Ott's @remove_duplicates@: the last occurrence of each survives.
 removeDuplicates :: Eq a => [a] -> [a]
@@ -176,7 +193,9 @@ ppOr env inProp = case envTarget env of
   _ -> " || "
 
 bigLineComment :: Env -> Text -> Text
-bigLineComment _ s = "(** " <> s <> " *)\n"
+bigLineComment env s
+  | isTwf env = "%%% " <> s <> " %%%\n\n"
+  | otherwise = "(** " <> s <> " *)\n"
 
 -- | Ott's @print_with_comment@: only when there is something to print.
 printWithComment :: Env -> Text -> Text -> Text -> Text
@@ -269,6 +288,12 @@ ppSuffixItemWithSie sie si = case si of
 ------------------------------------------------------------------------
 -- Nonterminals and metavariables
 
+-- | Ott's @capitalize_if_twelf_non_type@: Twelf variables are upper case.
+capitalizeIfTwelfNonType :: Bool -> Env -> Text -> Text
+capitalizeIfTwelfNonType asType env s
+  | isTwf env && not asType = capitalize s
+  | otherwise = s
+
 ppNontermWithSieInternal :: Bool -> Env -> Suffix -> (Text, Suffix) -> Text
 ppNontermWithSieInternal asType env sie (ntr, suff) =
   let r = ruleOfNtr env (primaryNtrOfNtr env ntr)
@@ -277,7 +302,7 @@ ppNontermWithSieInternal asType env sie (ntr, suff) =
         then pseudoHomSpec (fromMaybe [] hr)
         else
           let homs = fromMaybe [] (lookup ntr (ruleNames r))
-              ppNtr = maybe ntr pseudoHomSpec (homSpecForTarget env homs)
+              ppNtr = maybe (capitalizeIfTwelfNonType asType env ntr) pseudoHomSpec (homSpecForTarget env homs)
               auxparam = case lookup "auxparam" (ruleHoms r) of
                 Just hs | asType, isCaml env || isLem env -> Just (T.concat [s | HomString s <- hs])
                 _ -> Nothing
@@ -296,7 +321,7 @@ ppMetavarWithSieInternal asType env sie (mvr, suff) =
         then pseudoHomSpec (fromMaybe [] hr)
         else
           let homs = fromMaybe [] (lookup mvr (mvdNames md))
-              ppMvr = maybe mvr pseudoHomSpec (homSpecForTarget env homs)
+              ppMvr = maybe (capitalizeIfTwelfNonType asType env mvr) pseudoHomSpec (homSpecForTarget env homs)
               s = ppMvr <> ppSuffixWithSie sie suff
            in if asType then s else hideIsaTrailingUnderscore env s
 
@@ -373,6 +398,7 @@ ppNtOrMvWithDeWithSie env sie (de1, de2) ntmv@(ntmvr, _) = case lookup ntmv de2 
             then hypVar
             else "(match " <> hypVar <> " with " <> de1Pattern de1i <> " => " <> proj <> " end)"
       Caml -> pure (oops "pp_symterm for proper symterms not supported")
+      Twf -> twelfFail
   where
     nonZeroLower b = case b of
       BoundDotform l _ _ -> if l == SiNum "0" then Nothing else Just l
@@ -395,9 +421,12 @@ ppVariable env mvrp var =
         Lem -> via "lemvar"
         Caml -> via "ocamlvar"
         Coq -> var
+        Twf -> var
 
-ppUninterpreted :: Text -> Text
-ppUninterpreted s = "(*" <> s <> "*)"
+ppUninterpreted :: Env -> Text -> Text
+ppUninterpreted env s
+  | isTwf env = "%{" <> s <> "}%"
+  | otherwise = "(*" <> s <> "*)"
 
 ------------------------------------------------------------------------
 -- Comments
@@ -420,6 +449,7 @@ ppComStrings env homs ss = case lookup "com" homs of
 
 comment :: Env -> Text -> Text
 comment env s
+  | isTwf env = ""
   | isIsa env = " \\<comment> \\<open>" <> s <> "\\<close>"
   | otherwise = " (* " <> s <> " *)"
 
@@ -440,6 +470,7 @@ ppElement env sie inType e =
           | isCaml env && optCamlIncludeTerminals opts -> Just (Nothing, "terminal")
           | otherwise -> Nothing
         ListForm lb -> case envTarget env of
+          Twf -> twelfNotImplemented
           Coq
             | optCoqExpandLists opts -> case ppElements env sie (lbElements lb) False False True True of
                 Nothing -> Nothing
@@ -561,6 +592,7 @@ ppMetavardefn env md
               | otherwise -> "type_synonym \"" <> tn <> "\" = \"" <> rep <> "\"" <> com <> "\n"
             Hol -> "Type " <> tn <> " = ``:" <> rep <> "``" <> com <> "\n"
             Lem -> "type " <> tn <> " = " <> rep <> com <> "\n"
+            Twf -> "%abbrev " <> tn <> " : type = nat.\n"
 
 ppMetavarrep :: Env -> MetavarDefn -> Text
 ppMetavarrep env md = maybe "UNDEFINED" (ppHomSpec env) (homSpecForTarget env (mvdHoms md))
@@ -584,6 +616,7 @@ ppProd env rnn p
               Just s
                 | optCoqNamesInRules (envOpts env) -> " | " <> prodName p <> " " <> s <> com
                 | otherwise -> " | " <> prodName p <> " : " <> s <> " -> " <> ppNontermrootTy env rnn <> com
+            Twf -> Just (maybe (prodName p <> " : " <> ppNontermrootTy env rnn <> ".") (\s -> prodName p <> " : " <> s <> " -> " <> ppNontermrootTy env rnn <> ".") (els False))
             _ -> Just (maybe (capitalize (prodName p) <> com) (\s -> capitalize (prodName p) <> " of " <> s <> com) (els True))
 
 isNominalAtom :: MetavarDefn -> Bool
@@ -635,6 +668,10 @@ ppRule env r = do
         else do
           let universe = maybe "Set" (ppHomSpec env) (lookup "coq-universe" (ruleHoms r))
           pure (Just (ppNontermrootTy env (ruleName r) <> " : " <> universe <> " := " <> com <> "\n" <> T.intercalate "\n" prods))
+    Twf
+      | hidden -> pure Nothing
+      | any twfProdFails (ruleProds r) -> twelfFail
+      | otherwise -> pure (Just (ppNontermrootTy env (ruleName r) <> " : type. \n\n" <> T.concat [s <> "\n" | s <- prods]))
     _
       | hidden -> pure Nothing
       | otherwise ->
@@ -645,6 +682,13 @@ ppRule env r = do
                     <> T.intercalate " | " [s <> "\n" | s <- prods]
                 )
             )
+
+-- | Whether Ott's @pp_prod@ raises @TwelfNotImplemented@: its comment
+-- and, unless meta, its type print every element.
+twfProdFails :: Prod -> Bool
+twfProdFails p =
+  (isJust (lookup "com" (prodHoms p)) && any twfUnsupportedElement (prodElements p))
+    || (not (prodMeta p) && any twfUnsupportedElement (applyHomOrder p))
 
 stripSurroundingParens :: Text -> Text
 stripSurroundingParens s
@@ -663,9 +707,11 @@ ppRuleList env rs = do
         Coq -> (const "\nInductive ", "\nwith ", ".")
         Caml -> (const "\ntype \n", "\nand ", "")
         Lem -> (const "\ntype ", "\nand ", "")
+        Twf -> (const "", "\n", "")
       block b = case b of
         [Ntr ntr]
-          | Just hs <- homSpecForTarget env (ruleHoms (ruleOfNtr env ntr)) ->
+          | not (isTwf env)
+          , Just hs <- homSpecForTarget env (ruleHoms (ruleOfNtr env ntr)) ->
               let r = ruleOfNtr env ntr
                in pure $
                     if rulePhantom r
@@ -682,6 +728,7 @@ ppRuleList env rs = do
                                 else "\nDefinition " <> tn <> " : " <> universe <> " := " <> body <> ".\n"
                         Caml -> "\ntype\n" <> ppNontermrootTy env ntr <> " = " <> ppHomSpec env hs <> "\n\n"
                         Lem -> "\ntype " <> stripSurroundingParens (ppNontermrootTy env ntr) <> " = " <> ppHomSpec env hs <> "\n\n"
+                        Twf -> oops "int_rule_list_dep: no type abbreviations in Twelf"
         _ -> do
           let b' = reverse b
           defs <- fmap concat $ forM b' $ \nm -> case nm of
@@ -824,6 +871,9 @@ ppNodeBody env sie de ntr pn es = do
               Coq -> do
                 xs <- ppSymtermElements env sie de False (prodElements p'') es''
                 pure (pn'' <> " " <> T.unwords xs)
+              Twf -> do
+                xs <- ppSymtermElements env sie de False (prodElements p'') es''
+                pure (pn'' <> " " <> T.unwords xs)
               Hol -> do
                 xs <- ppSymtermElements env sie de False (prodElements p'') es''
                 pure (" ( " <> pn'' <> " " <> T.unwords xs <> " )")
@@ -868,6 +918,7 @@ ppFormulaDots env sie de p es ppEs = case envTarget env of
     [] -> pure "formula_dots"
     _ -> (\xs -> "(" <> "List.all (fun b -> b)" <> " " <> T.unwords xs <> ")") <$> ppEs
   Caml -> pure (oops "Caml pp_symterm for proper symterms not supported")
+  Twf -> twelfFail
   Coq -> case es of
     [SteList [StliListform bound [SteSt (StNode ntr0 pn0 es0)]]] -> do
       let (ntrB, pnB, esB) =
@@ -955,7 +1006,7 @@ ppSymtermElements env sie de includeTerminals = go
       (Nonterm {} : pes, SteSt (StNonterm _ nt) : es') -> cons (ppNontermWithDeWithSie env sie de nt) (go pes es')
       (Nonterm {} : pes, SteSt (StNontermSub _ _ nt) : es') -> cons (ppNontermWithDeWithSie env sie de nt) (go pes es')
       (Nonterm {} : pes, SteSt (StNode ntr pn es'') : es') -> cons (ppNodeBody env sie de ntr pn es'') (go pes es')
-      (_, SteSt (StUninterpreted _ s) : es') -> (ppUninterpreted s :) <$> go prodEs es'
+      (_, SteSt (StUninterpreted _ s) : es') -> (ppUninterpreted env s :) <$> go prodEs es'
       (Metavar {} : pes, SteMetavar _ mv : es') -> cons (ppMetavarWithDeWithSie env sie de mv) (go pes es')
       (Metavar {} : pes, SteVar mvrp var : es') -> (ppVariable env mvrp var :) <$> go pes es'
       (ListForm lb : pes, SteList stlis : es') -> do
@@ -980,6 +1031,7 @@ elementsToString = concatMap el
 
 ppSymtermListItems :: Env -> Suffix -> De -> Maybe Text -> [Element] -> [Stli] -> P [Text]
 ppSymtermListItems env sie de _ prodEs stlis = case stlis of
+  _ | isTwf env -> twelfFail
   [] -> pure $ case envTarget env of
     Coq
       | optCoqExpandLists (envOpts env) -> ["Nil_list_" <> T.intercalate "_" (elementsToString prodEs)]
@@ -995,6 +1047,7 @@ ppSymtermListItems env sie de _ prodEs stlis = case stlis of
       Hol -> joinWith "++"
       Caml -> joinWith "@"
       Lem -> joinWith "++"
+      Twf -> twelfNotImplemented
       Coq ->
         let l = concat ppStlis
          in if length l > 1
@@ -1050,7 +1103,12 @@ ppSymtermListBody env sie de includeTerminals prodEs bound es = do
       cid = de1CompoundId de1i
   if de1Pattern de1i == ppBody
     then pure [cid]
-    else pure $ case envTarget env of
+    else case envTarget env of
+      Twf -> twelfFail
+      _ -> pure (body cid ppBody de1i)
+  where
+   body cid ppBody de1i = case envTarget env of
+      Twf -> twelfNotImplemented
       Isa ->
         let vars = [ppNtOrMvWithSie env [SiPunct "_"] ntmv | (ntmv, _) <- de1Ntmvsns de1i]
             types = [ppNtOrMvRoot env (promoteNtmvr env (primaryNtmvr env r)) | ((r, _), _) <- de1Ntmvsns de1i]
@@ -1120,13 +1178,20 @@ ppMse env sie de isaListNameFlag prodNm ntmvro mse = case mse of
       s2 <- ppMseString env sie de m2
       s1 <- ppMseString env sie de m1
       pure ("(" <> s1 <> listAppend env <> s2 <> ")", [], [])
+    Twf -> do
+      s2 <- ppMseString env sie de m2
+      s1 <- ppMseString env sie de m1
+      pure ("(append/natlist " <> s1 <> " " <> s2 <> ")", [], [])
     _ -> do
       s2 <- ppMseString env sie de m2
       s1 <- ppMseString env sie de m1
       pure (s1 <> listAppend env <> s2, [], [])
-  Empty -> pure (if isCoq env then "nil" else "[]", [], [])
+  Empty -> pure (if isCoq env then "nil" else if isTwf env then "natlist/nil" else "[]", [], [])
   where
-    single s = if isCoq env then "(cons " <> s <> " nil)" else "[" <> s <> "]"
+    single s
+      | isCoq env = "(cons " <> s <> " nil)"
+      | isTwf env = "(natlist/cons " <> s <> " natlist/nil)"
+      | otherwise = "[" <> s <> "]"
     unmake fake root
       | isCoq env && optCoqExpandLists (envOpts env) = case ntmvro of
           Just r -> "(unmake_list_" <> ppNtOrMvRootTy env r <> " " <> fake <> ")"
@@ -1148,6 +1213,7 @@ ppMseAuxList env sie de isaListNameFlag prodNm ntmvro f nt b = do
           let s = ppNontermroot env ntrp in pure ("(concat (map " <> auxfnName f s s <> " (" <> ppNtlist <> ")))", [], [])
     Hol -> pure ("(FLAT (MAP " <> auxfnName f ntrp ntrp <> " (" <> ppNtlist <> ")))", [], [])
     Caml -> pure ("(List.flatten (List.map " <> auxfnName f ntrp ntrp <> " (" <> ppNtlist <> ")))", [], [])
+    Twf -> twelfFail
     Lem -> let s = ppNontermroot env ntrp in pure (" (List.concat (List.map " <> auxfnName f s s <> " (" <> ppNtlist <> ")))", [], [])
     Coq
       | optCoqExpandLists (envOpts env) -> do

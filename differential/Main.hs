@@ -49,7 +49,7 @@ main = do
   let opt flag def = fromMaybe def (lookup flag (pairs args))
       only = [s | ("--only", s) <- pairs args]
       wanted = [s | ("--target", s) <- pairs args]
-      proverTargets = [t | t <- [Coq, Isa, Hol, Lem, Caml], null wanted || T.unpack (targetName t) `elem` wanted]
+      proverTargets = [t | t <- [Coq, Isa, Hol, Lem, Twf, Caml], null wanted || T.unpack (targetName t) `elem` wanted]
       ottDir = opt "--ott" (fromMaybe "../ott" envOtt)
       reportDir = opt "--report-ott" (fromMaybe "../haskell-2010-revised-report/formalisation" envReport)
       ott = ottDir </> "bin" </> "ott"
@@ -166,6 +166,7 @@ compareProver ott t rel file src spec = do
         Hol -> "Script.sml"
         Lem -> ".lem"
         Caml -> ".ml"
+        Twf -> ".twf"
       what = T.unpack (targetName t)
   _ <- try (removeFile out) :: IO (Either IOException ())
   (code, stdoutText, _) <- readProcessWithExitCode ott ["-i", file, "-o", out] ""

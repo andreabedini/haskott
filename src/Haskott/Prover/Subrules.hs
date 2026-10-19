@@ -135,14 +135,20 @@ ppSubrule env nonFree srl sru = do
     rhss <- forM pls $ \pl -> do
       resetSplit
       (conjuncts, deps, newFuncs) <- ppSubelements env nonFree [] de flag pu (prodElements pl) (prodElements pu) srl sru
-      let rhs = if null conjuncts then ppTrue env False else T.intercalate (ppAnd env False) conjuncts
+      let rhs
+            | isTwf env = T.concat [" <- " <> c | c <- conjuncts]
+            | null conjuncts = ppTrue env False
+            | otherwise = T.intercalate (ppAnd env False) conjuncts
       pure (rhs, deps, newFuncs)
     let rhs = case rhss of
           [] -> ppFalse env False
           [(r, _, _)] -> "(" <> r <> ")"
           _ -> T.intercalate (ppOr env False) ["(" <> r <> ")" | (r, _, _) <- rhss]
-    pure (("", lhs, rhs), [(d, f) | (_, d, f) <- rhss])
-  let clauses = map fst perProd
+        clauses'
+          | isTwf env = [(prodName pu, lhs, r) | (r, _, _) <- rhss]
+          | otherwise = [("", lhs, rhs)]
+    pure (clauses', [(d, f) | (_, d, f) <- rhss])
+  let clauses = concatMap fst perProd
       -- dep := deps @ !dep, funcs := !funcs @ new_funcs, production by
       -- production
       steps = concatMap snd perProd
@@ -154,6 +160,7 @@ ppSubrule env nonFree srl sru = do
       header = case envTarget env of
         Isa -> (ppIs srl sru <> " :: \"" <> ppNontermrootTy env sru <> " => bool\"\n", "", "")
         Hol -> ("", "", "")
+        Twf -> (ppIs srl sru <> " : " <> ppNontermrootTy env sru <> " -> type.\n", "", "")
         Coq ->
           ( ppIs srl sru <> " (" <> freshText <> ":" <> ppNontermrootTy env sru <> ")"
           , ""
@@ -187,6 +194,7 @@ ppSubelement env nonFree sie de flag pu srl sru el eu = case (el, eu) of
     (conjuncts, deps, _) <- ppSubelements env nonFree sie' de flag pu (lbElements elbl) (lbElements elbu) srl sru
     let conj = if null conjuncts then ppTrue env False else T.intercalate (ppAnd env False) conjuncts
     case envTarget env of
+      Twf -> failP "internal (Twelf): pp_true"
       Isa
         | optIsaPrimrec (envOpts env) -> isaPrimrecList env nonFree sie de flag pu srl sru elbl elbu de1i conj deps
         | otherwise -> pure (["(list_all (% " <> pattern <> " . " <> conj <> ") " <> cid <> ")"], deps, [])
