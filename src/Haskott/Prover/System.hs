@@ -424,6 +424,10 @@ mergedOutput env processed structure job vertex0 = do
 structuredOutput :: Env -> Processed -> [(FilePath, Entry)] -> ProverJob -> Int -> Either Text ([(FilePath, Text)], Int)
 structuredOutput env processed structure0 job vertex0 = do
   let t = envTarget env
+      -- Ott names the sources of the first output in every header
+      firstInputs = case pjOutputs job of
+        (_, is) : _ -> is
+        [] -> []
       single = case pjOutputs job of
         [(_, [_])] -> True
         _ -> False
@@ -431,7 +435,7 @@ structuredOutput env processed structure0 job vertex0 = do
   (files, st) <- runP state0 $ forM (pjOutputs job) $ \(o, is) -> do
     fn <- either failP pure (outputFileName t o)
     let entries = if single then structure else [(f, e) | (f, e) <- structure, f `elem` is]
-    pre <- ppEmbedmorphism env (preambleName t) (standardPreamble env (envSpec env) fn is)
+    pre <- ppEmbedmorphism env (preambleName t) (standardPreamble env (envSpec env) fn firstInputs)
     lemmas <- auxiliaryLemmas envX
     body <- T.concat <$> mapM (ppStructEntryX env envX processed) (map snd entries)
     post <- case t of
