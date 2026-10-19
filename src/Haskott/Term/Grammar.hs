@@ -18,6 +18,7 @@ module Haskott.Term.Grammar
   , Grammar (..)
   , buildGrammar
   , startSymbol
+  , nonterminalCount
   ) where
 
 import Control.Monad (forM_, unless, when)
@@ -93,6 +94,11 @@ data Grammar = Grammar
   , gNames :: IM.IntMap Text
   -- ^ nonterminal names, for messages and the grammar printout
   }
+
+-- | The number of nonterminals the productions use, on either side: the
+-- vertices Ott's parse table adds to ocamlgraph's counter.
+nonterminalCount :: Grammar -> Int
+nonterminalCount g = Set.size (Set.fromList (concat [prodLeft p : [n | N n <- prodRight p] | p <- IM.elems (gProds g)]))
 
 -- | The nonterminal to parse a root from, if the grammar has one.
 startSymbol :: Grammar -> Text -> Bool -> Maybe NtId

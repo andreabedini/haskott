@@ -28,13 +28,16 @@ import Haskott.Defns (processDefns)
 import Haskott.Term.Parse (ParsePolicy (..), makeTermParser, parseTerms)
 import Haskott.Term.Requests (TermRequest (..), termRequests)
 import Haskott.Term.Symterm (ppPlainSymterm)
-import Haskott.Tex (Dialect (..), defaultTexOptions, makeTex, texDocument)
+import Haskott.Tex (Dialect (..), defaultTexOptions, makeTex, quotationParser, texDocument)
+import Haskott.Prover
+import Haskott.Term.Grammar (nonterminalCount)
+import Haskott.Term.Parse (termGrammar)
 import Control.Exception (IOException, try)
 import qualified Data.Text.Encoding.Error as TEE
 import System.Directory (doesFileExist, getTemporaryDirectory, removeFile)
 import Data.List (isInfixOf, nub, sort)
 import System.Environment (getArgs, lookupEnv)
-import System.Exit (exitFailure)
+import System.Exit (ExitCode (..), exitFailure)
 import System.FilePath (joinPath, splitDirectories, (</>))
 import System.Process (readProcessWithExitCode)
 
@@ -45,6 +48,8 @@ main = do
   envReport <- lookupEnv "HASKOTT_REPORT_OTT"
   let opt flag def = fromMaybe def (lookup flag (pairs args))
       only = [s | ("--only", s) <- pairs args]
+      wanted = [s | ("--target", s) <- pairs args]
+      proverTargets = [t | t <- [Coq, Isa, Hol, Lem, Caml], null wanted || T.unpack (targetName t) `elem` wanted]
       ottDir = opt "--ott" (fromMaybe "../ott" envOtt)
       reportDir = opt "--report-ott" (fromMaybe "../haskell-2010-revised-report/formalisation" envReport)
       ott = ottDir </> "bin" </> "ott"
@@ -96,7 +101,8 @@ main = do
                           | otherwise -> do
                               typ <- compareTex ott Typst rel file spec
                               tex <- compareTex ott Latex rel file spec
-                              pure (combine [typ, tex])
+                              provers <- mapM (\t -> compareProver ott t rel file src spec) proverTargets
+                              pure (combine ([typ, tex] ++ provers))
                   _ -> pure Nothing
   let failures = [f | Just f <- results]
   putStrLn (show (length entries) ++ " files compared with ott -showraw, -show_sort, -parse, TeX and Typst output, " ++ show (length failures) ++ " disagreements")
@@ -142,6 +148,58 @@ compareTex ott d rel file spec = do
           pure (Just (rel ++ ": " ++ what ++ " output differs at byte " ++ show diffAt ++ "\n    haskott: " ++ show (context mine) ++ "\n    ott:     " ++ show (context theirs)))
   where
     lastLine s = case reverse (filter (not . null) (lines s)) of
+      (l : _) -> l
+      [] -> ""
+
+
+-- | Compare a prover's output with Ott's, byte for byte, and whether
+-- the two accept the file for the target.
+compareProver :: FilePath -> Target -> FilePath -> FilePath -> T.Text -> Spec -> IO (Maybe String)
+compareProver ott t rel file src spec = do
+  tmp <- getTemporaryDirectory
+  let out = tmp </> ("haskottdiff" ++ ext)
+      ext = case t of
+        Coq -> ".v"
+        Isa -> ".thy"
+        Hol -> "Script.sml"
+        Lem -> ".lem"
+        Caml -> ".ml"
+      what = T.unpack (targetName t)
+  _ <- try (removeFile out) :: IO (Either IOException ())
+  (code, stdoutText, _) <- readProcessWithExitCode ott ["-i", file, "-o", out] ""
+  exists <- doesFileExist out
+  theirs <- if exists && code == ExitSuccess then Just <$> B.readFile out else pure Nothing
+  let tp = makeTermParser spec
+      policy = FirstIfSame [renderProverSymterm t defaultProverOptions spec | t /= Caml]
+      (processed, _) = processDefns policy tp spec
+      mine = do
+        prepared <- either (Left . diagMessage) Right (prepareProvers [t] [Input file src 0] spec (nonterminalCount (termGrammar tp)))
+        let job =
+              ProverJob
+                { pjTarget = t
+                , pjOptions = defaultProverOptions
+                , pjSpec = spec
+                , pjProcessed = processed
+                , pjInputs = [Input file src 0]
+                , pjQuotation = quotationParser policy tp
+                , pjOutputs = [(out, [file])]
+                }
+        (files, _) <- proverOutputs prepared job (prVertex prepared)
+        case files of
+          [(_, txt)] -> Right (TE.encodeUtf8 txt)
+          _ -> Left "no output"
+  pure $ case (theirs, mine) of
+    (Nothing, Left _) -> Nothing
+    (Nothing, Right _) -> Just (rel ++ ": " ++ what ++ ": haskott writes output where ott fails: " ++ take 200 (lastLine' stdoutText))
+    (Just _, Left e) -> Just (rel ++ ": " ++ what ++ ": haskott fails where ott writes output: " ++ take 300 (T.unpack e))
+    (Just o, Right h)
+      | o == h -> Nothing
+      | otherwise ->
+          let diffAt = length (takeWhile id (B.zipWith (==) h o))
+              context bs = T.unpack (TE.decodeUtf8With TEE.lenientDecode (B.take 200 (B.drop (max 0 (diffAt - 80)) bs)))
+           in Just (rel ++ ": " ++ what ++ " output differs at byte " ++ show diffAt ++ "\n    haskott: " ++ show (context h) ++ "\n    ott:     " ++ show (context o))
+  where
+    lastLine' x = case reverse (filter (not . null) (lines x)) of
       (l : _) -> l
       [] -> ""
 

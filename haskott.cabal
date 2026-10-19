@@ -30,10 +30,23 @@ library
         Haskott
         Haskott.Defns
         Haskott.Diagnostics
+        Haskott.Graph
         Haskott.Highlight
         Haskott.Load
         Haskott.Outline
         Haskott.Project
+        Haskott.Prover
+        Haskott.Prover.Bounds
+        Haskott.Prover.Context
+        Haskott.Prover.CoqInduct
+        Haskott.Prover.Defns
+        Haskott.Prover.Dependency
+        Haskott.Prover.Pp
+        Haskott.Prover.Subrules
+        Haskott.Prover.Substs
+        Haskott.Prover.System
+        Haskott.Prover.Transform
+        Haskott.Prover.Types
         Haskott.Raw
         Haskott.Raw.Show
         Haskott.Rename

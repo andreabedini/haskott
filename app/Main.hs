@@ -11,7 +11,7 @@
 -- look at one stage each.
 module Main (main) where
 
-import Control.Monad (forM, forM_, unless, when)
+import Control.Monad (foldM, forM, forM_, unless, when)
 import qualified Data.ByteString as B
 import Data.List (isSuffixOf)
 import qualified Data.Text as T
@@ -32,6 +32,8 @@ import Haskott.Term.Parse
 import Haskott.Term.Splice (spliceTerms)
 import Haskott.Term.Symterm (ppPlainSymterm)
 import Haskott.Tex
+import Haskott.Prover
+import Haskott.Term.Grammar (nonterminalCount)
 import Server (serverMain)
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
@@ -88,6 +90,12 @@ main = do
             let (tree', _, _) = spliceTerms (FirstIfSame []) (makeTermParser spec) tree
             TIO.putStr (dumpTree tree')
     ("rename" : rest) -> renameMain rest
+    ("structure" : files@(_ : _)) -> do
+      -- the structure of the prover output, for debugging
+      texts <- forM files $ \f -> (,) f <$> readSource f
+      case loadSpec texts of
+        Left e -> reportLoadError e >> exitFailure
+        Right l -> TIO.putStr (debugStructure [Input (srcPath s) (srcText s) (srcBase s) | s <- ldSources l] (ldSpec l))
     -- editors may add --stdio
     ("lsp" : _) -> serverMain
     ("roots" : files@(_ : _)) -> do
@@ -107,18 +115,32 @@ main = do
 data Options = Options
   { oInputs :: [FilePath]
   , oOutputs :: [FilePath]
+  , oFileArgs :: [(Bool, FilePath)]
+  -- ^ the inputs (True) and outputs in command-line order
+  , oProver :: ProverOptions
   , oFilters :: [(Dialect, FilePath, FilePath)]
   , oPicky :: Bool
   , oTex :: TexOptions
   }
 
 parseOptions :: [String] -> Either String Options
-parseOptions = go (Options [] [] [] False (defaultTexOptions Latex))
+parseOptions = go (Options [] [] [] defaultProverOptions [] False (defaultTexOptions Latex))
   where
     go o args = case args of
-      [] -> Right o {oInputs = reverse (oInputs o), oOutputs = reverse (oOutputs o), oFilters = reverse (oFilters o)}
-      "-i" : f : rest -> go o {oInputs = f : oInputs o} rest
-      "-o" : f : rest -> go o {oOutputs = f : oOutputs o} rest
+      [] -> Right o {oInputs = reverse (oInputs o), oOutputs = reverse (oOutputs o), oFileArgs = reverse (oFileArgs o), oFilters = reverse (oFilters o)}
+      "-i" : f : rest -> go o {oInputs = f : oInputs o, oFileArgs = (True, f) : oFileArgs o} rest
+      "-o" : f : rest -> go o {oOutputs = f : oOutputs o, oFileArgs = (False, f) : oFileArgs o} rest
+      "-coq_avoid" : n : rest -> go (prover o (\p -> p {optCoqAvoid = read n})) rest
+      "-coq_expand_list_types" : b : rest -> bool b >>= \v -> go (prover o (\p -> p {optCoqExpandLists = v})) rest
+      "-coq_names_in_rules" : b : rest -> bool b >>= \v -> go (prover o (\p -> p {optCoqNamesInRules = v})) rest
+      "-coq_use_filter_fn" : b : rest -> bool b >>= \v -> go (prover o (\p -> p {optCoqUseFilterFn = v})) rest
+      "-coq_lngen" : b : rest -> bool b >>= \v -> go (prover o (\p -> p {optCoqLngen = v})) rest
+      "-isabelle_primrec" : b : rest -> bool b >>= \v -> go (prover o (\p -> p {optIsaPrimrec = v})) rest
+      "-isabelle_inductive" : b : rest -> bool b >>= \v -> go (prover o (\p -> p {optIsaInductive = v})) rest
+      "-isa_syntax" : b : rest -> bool b >>= \v -> go (prover o (\p -> p {optIsaSyntax = v})) rest
+      "-isa_generate_lemmas" : b : rest -> bool b >>= \v -> go (prover o (\p -> p {optIsaGenerateLemmas = v})) rest
+      "-ocaml_include_terminals" : b : rest -> bool b >>= \v -> go (prover o (\p -> p {optCamlIncludeTerminals = v})) rest
+      "-no_rbcatn" : b : rest -> bool b >>= \v -> go (prover o (\p -> p {optNoRbcatn = v})) rest
       "-tex_filter" : s : d : rest -> go o {oFilters = (Latex, s, d) : oFilters o} rest
       "-typst_filter" : s : d : rest -> go o {oFilters = (Typst, s, d) : oFilters o} rest
       "-picky_multiple_parses" : b : rest -> bool b >>= \v -> go o {oPicky = v} rest
@@ -129,13 +151,14 @@ parseOptions = go (Options [] [] [] False (defaultTexOptions Latex))
       "-tex_wrap" : b : rest -> bool b >>= \v -> go (tex o (\t -> t {optWrap = v})) rest
       "-tex_suppress_category" : c : rest -> go (tex o (\t -> t {optSuppressedCategories = optSuppressedCategories t ++ [T.pack c]})) rest
       "-tex_suppress_ntr" : n : rest -> go (tex o (\t -> t {optSuppressedNtrs = optSuppressedNtrs t ++ [T.pack n]})) rest
-      f : rest | ".ott" `isSuffixOf` f -> go o {oInputs = f : oInputs o} rest
+      f : rest | ".ott" `isSuffixOf` f -> go o {oInputs = f : oInputs o, oFileArgs = (True, f) : oFileArgs o} rest
       opt : _ -> Left ("unknown option or argument " ++ show opt)
     bool b = case b of
       "true" -> Right True
       "false" -> Right False
       _ -> Left ("expected true or false, found " ++ show b)
     tex o f = o {oTex = f (oTex o)}
+    prover o f = o {oProver = f (oProver o)}
 
 -- | The dialect an output file is written in, by its extension.
 outputDialect :: FilePath -> Maybe Dialect
@@ -148,9 +171,12 @@ ottMain :: [String] -> IO ()
 ottMain args = do
   opts <- either (\m -> hPutStrLn stderr m >> exitFailure) pure (parseOptions args)
   when (null (oInputs opts)) $ hPutStrLn stderr "no input files" >> exitFailure
-  outputs <- forM (oOutputs opts) $ \o -> case outputDialect o of
-    Just d -> pure (d, o)
-    Nothing -> hPutStrLn stderr ("only TeX and Typst output are implemented; cannot write " ++ o) >> exitFailure
+  outputs <- fmap concat $ forM (oOutputs opts) $ \o -> case (outputDialect o, targetOfOutput o) of
+    (Just d, _) -> pure [(d, o)]
+    (_, Just _) -> pure []
+    _ -> hPutStrLn stderr ("unrecognised extension of output file " ++ show o) >> exitFailure
+  -- the prover targets, each once, in the order of their last output
+  let proverTargets = removeDuplicatesLast [t | o <- oOutputs opts, Just t <- [targetOfOutput o]]
   -- every file is parsed into its own tree and the raw documents are
   -- checked as one, as Ott does with several -i options
   sourcesText <- forM (oInputs opts) $ \f -> (,) f <$> readSource f
@@ -167,13 +193,39 @@ ottMain args = do
       -- compares them (Ott's TeX, not its Typst) prints them the same
       policy
         | oPicky opts = Picky
-        | otherwise = FirstIfSame [renderSymterm (envOf Latex) | Latex `elem` map fst outputs]
+        | otherwise =
+            FirstIfSame
+              ( [renderSymterm (envOf Latex) | Latex `elem` map fst outputs]
+                  ++ [renderProverSymterm t (oProver opts) spec | t <- proverTargets, t /= Caml]
+              )
       (processed, diags) = processDefns policy tp spec
       -- stage two on every tree, for its warnings about quotations
       warnings = concat [map (shiftDiag (srcBase s)) ws | s <- files, let (_, _, ws) = spliceTerms policy tp (srcTree s)]
   mapM_ report diags
   mapM_ (\d -> report d {diagMessage = "warning: " <> diagMessage d}) warnings
   forM_ outputs $ \(d, o) -> writeText o (texDocument (envOf d) sources processed)
+  unless (null proverTargets) $ do
+    let inputs = [Input (srcPath s) (srcText s) (srcBase s) | s <- files]
+    prepared <- case prepareProvers proverTargets inputs spec (nonterminalCount (termGrammar tp)) of
+      Left d -> report d >> exitFailure
+      Right p -> pure p
+    let job t =
+          ProverJob
+            { pjTarget = t
+            , pjOptions = oProver opts
+            , pjSpec = spec
+            , pjProcessed = processed
+            , pjInputs = inputs
+            , pjQuotation = quotationParser policy tp
+            , pjOutputs = outputsOf t (oFileArgs opts)
+            }
+        run vertex t = case proverOutputs prepared (job t) vertex of
+          Left m -> hPutStrLn stderr ("Error: " ++ T.unpack m) >> exitFailure
+          Right (written, vertex') -> do
+            forM_ written (uncurry writeText)
+            pure vertex'
+    _ <- foldM run (prVertex prepared) proverTargets
+    pure ()
   forM_ (oFilters opts) $ \(d, s, dst) -> do
     src <- readSource s
     case filterDocument (envOf d) src of
@@ -184,6 +236,23 @@ ottMain args = do
   unless (null diags) exitFailure
   where
     shiftDiag base d = d {diagRange = shiftRange base (diagRange d)}
+
+-- | Ott's @compute_output@: each output of a target with the inputs since
+-- the previous one, most recent first.
+outputsOf :: Target -> [(Bool, FilePath)] -> [(FilePath, [FilePath])]
+outputsOf t = go []
+  where
+    go ib args = case args of
+      [] -> []
+      (True, f) : more -> go (f : ib) more
+      (False, f) : more
+        | targetOfOutput f == Just t -> (f, ib) : go [] more
+        | otherwise -> go ib more
+
+removeDuplicatesLast :: Eq a => [a] -> [a]
+removeDuplicatesLast xs = case xs of
+  [] -> []
+  x : more -> if x `elem` more then removeDuplicatesLast more else x : removeDuplicatesLast more
 
 writeText :: FilePath -> T.Text -> IO ()
 writeText f = B.writeFile f . TE.encodeUtf8
