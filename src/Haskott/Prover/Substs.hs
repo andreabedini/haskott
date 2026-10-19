@@ -188,7 +188,7 @@ ntsOfSymterms = concatMap st
       StNode _ _ es -> concatMap ste es
       StNonterm _ nt -> [nt]
       StNontermSub _ _ nt -> [nt]
-      StUninterpreted _ -> []
+      StUninterpreted _ _ -> []
     ste e = case e of
       SteSt s -> st s
       SteList stlis -> concatMap stli stlis

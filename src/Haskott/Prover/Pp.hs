@@ -81,7 +81,9 @@ import Data.Char (toUpper)
 import Data.List (find)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust)
+import qualified Data.ByteString as B
 import Data.Text (Text)
+import qualified Data.Text.Encoding as TE
 import qualified Data.Text as T
 import Haskott.Prover.Dependency (IntFunc (..))
 import Haskott.Prover.Types
@@ -99,6 +101,21 @@ removeDuplicates :: Eq a => [a] -> [a]
 removeDuplicates xs = case xs of
   [] -> []
   x : more -> if x `elem` more then removeDuplicates more else x : removeDuplicates more
+
+-- | OCaml's @String.escaped@, on the bytes of the UTF-8 encoding.
+ocamlEscaped :: Text -> Text
+ocamlEscaped = T.concat . map esc . B.unpack . TE.encodeUtf8
+  where
+    esc c = case c of
+      34 -> "\\\""
+      92 -> "\\\\"
+      10 -> "\\n"
+      9 -> "\\t"
+      13 -> "\\r"
+      8 -> "\\b"
+      _
+        | c >= 32 && c <= 126 -> T.singleton (toEnum (fromIntegral c))
+        | otherwise -> "\\" <> T.justifyRight 3 '0' (T.pack (show c))
 
 -- | Ott's @hide_isa_trailing_underscore@.
 hideIsaTrailingUnderscore :: Env -> Text -> Text
@@ -765,7 +782,7 @@ ppSymterm env sie de st = case st of
   StNode ntr pn es -> ppNodeBody env sie de ntr pn es
   StNonterm _ nt -> ppNontermWithDeWithSie env sie de nt
   StNontermSub _ _ nt -> ppNontermWithDeWithSie env sie de nt
-  StUninterpreted s -> pure ("(PARSE_ERROR \"" <> s <> "\")")
+  StUninterpreted l s -> pure ("(PARSE_ERROR \"" <> envLoc env l <> "\" \"" <> ocamlEscaped s <> "\")")
 
 ppFancyFormula :: Env -> Suffix -> De -> Text -> [Ste] -> P Text
 ppFancyFormula env sie de embedding es = do
@@ -894,7 +911,7 @@ extractNontermsDeep = concatMap ste
       SteSt (StNonterm _ (n, s)) -> [(Ntr n, s)]
       SteSt (StNontermSub _ _ (n, s)) -> [(Ntr n, s)]
       SteSt (StNode _ _ es) -> extractNontermsDeep es
-      SteSt (StUninterpreted _) -> []
+      SteSt (StUninterpreted _ _) -> []
       SteMetavar _ (m, s) -> [(Mvr m, s)]
       SteVar _ _ -> []
       SteList stlis -> concatMap stli stlis
@@ -938,7 +955,7 @@ ppSymtermElements env sie de includeTerminals = go
       (Nonterm {} : pes, SteSt (StNonterm _ nt) : es') -> cons (ppNontermWithDeWithSie env sie de nt) (go pes es')
       (Nonterm {} : pes, SteSt (StNontermSub _ _ nt) : es') -> cons (ppNontermWithDeWithSie env sie de nt) (go pes es')
       (Nonterm {} : pes, SteSt (StNode ntr pn es'') : es') -> cons (ppNodeBody env sie de ntr pn es'') (go pes es')
-      (_, SteSt (StUninterpreted s) : es') -> (ppUninterpreted s :) <$> go prodEs es'
+      (_, SteSt (StUninterpreted _ s) : es') -> (ppUninterpreted s :) <$> go prodEs es'
       (Metavar {} : pes, SteMetavar _ mv : es') -> cons (ppMetavarWithDeWithSie env sie de mv) (go pes es')
       (Metavar {} : pes, SteVar mvrp var : es') -> (ppVariable env mvrp var :) <$> go pes es'
       (ListForm lb : pes, SteList stlis : es') -> do
@@ -1313,7 +1330,7 @@ makeNameSymterm env typ st = case st of
   StNode _ _ es -> makeNameElements env typ es
   StNonterm ntr _ -> if typ then ppNontermrootTy env ntr else ppNontermroot env ntr
   StNontermSub l t (ntr, _) -> l <> "-" <> t <> (if typ then ppNontermrootTy env ntr else ppNontermroot env ntr)
-  StUninterpreted s -> s
+  StUninterpreted _ s -> s
 
 makeNameElements :: Env -> Bool -> [Ste] -> Text
 makeNameElements env typ es =
@@ -1331,7 +1348,7 @@ makeDepSymterm st = case st of
   StNode _ _ es -> concatMap el es
   StNonterm ntr _ -> [ntr]
   StNontermSub l t (ntr, _) -> [l <> "-" <> t <> ntr]
-  StUninterpreted s -> [s]
+  StUninterpreted _ s -> [s]
   where
     el e = case e of
       SteSt s -> makeDepSymterm s

@@ -162,7 +162,7 @@ defn d =
 semirawRule :: SemirawRule -> Text
 semirawRule r = case r of
   LinelessRule ls _ -> "[[\n" <> T.concat (map bar ls) <> "]]\n"
-  LinedRule ps annot _ cs _ -> "[[\n" <> T.concat (map bar ps) <> "---------------" <> annot <> T.concat (map bar cs) <> "]]\n"
+  LinedRule ps annot _ cs _ _ _ -> "[[\n" <> T.concat (map bar ps) <> "---------------" <> annot <> T.concat (map bar cs) <> "]]\n"
   DefnComRule es _ -> "[[\n" <> embedSpecText es <> "]]\n"
   where
     bar s = "| " <> s <> "\n"

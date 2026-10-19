@@ -32,6 +32,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Graft
+import qualified Graft.Range as Range
 import qualified Haskott.Raw as R
 import Haskott.Spec
 import Haskott.Term.Parse
@@ -181,16 +182,16 @@ canonicalElements = mapMaybe el
 
 processRule :: ParsePolicy -> TermParser -> DefnClass -> Defn -> Text -> SemirawRule -> P (Maybe RuleItem)
 processRule picky tp dc d prodName' sr = case sr of
-  LinedRule premises _ annot conclusions range -> do
-    ps <- forM premises (premise range)
-    conclusion <- case conclusions of
+  LinedRule premises _ annot conclusions range premiseRanges conclusionRanges -> do
+    ps <- forM (zip premises (map Just premiseRanges ++ repeat Nothing)) $ \(p, pr) -> premise range pr p
+    conclusion <- case zip conclusions (map Just conclusionRanges ++ repeat Nothing) of
       [] -> do
         report range "rule with no conclusion"
-        pure (StUninterpreted "no conclusion")
-      [c] -> parseWith (defnTransform prodName') "formula" c range
+        pure (StUninterpreted Nothing "no conclusion")
+      [(c, cr)] -> parseWith (defnTransform prodName') "formula" c range cr
       _ -> do
         report range "rule with multiple conclusions"
-        pure (StUninterpreted "multiple conclusions")
+        pure (StUninterpreted Nothing "multiple conclusions")
     homs <- forM (raHoms annot) (druleHom range)
     pure . Just . ItemRule $
       Drule
@@ -206,28 +207,29 @@ processRule picky tp dc d prodName' sr = case sr of
     | otherwise -> do
         -- Ott's test-harness hack: a block of lines with no dashed line is
         -- a rule with no premises, named fake, in category F
-        st <- parseWith userSyntaxTransform "formula" (T.intercalate " " ls) range
+        st <- parseWith userSyntaxTransform "formula" (T.intercalate " " ls) range (Just range)
         pure . Just . ItemRule $ Drule "fake" (Set.singleton "F") [] st [] range
   DefnComRule es range -> pure (Just (ItemComment es range))
   where
-    parseWith transform root s range = case justOneParse picky transform tp root False s of
+    parseWith transform root s range lineRange = case justOneParse picky transform tp root False s of
       Parsed p -> pure (parseTerm p)
       NoParses -> do
         let errorStr = noParsesErrorString tp root False s
         report range ("no parses of \"" <> s <> "\":\n" <> errorStr <> "\n")
-        pure (StUninterpreted errorStr)
+        pure (StUninterpreted (offsets <$> lineRange) errorStr)
       MultipleParses ps -> do
         report range ("multiple parses of \"" <> s <> "\":\n" <> T.unlines (map (ppPlainSymterm . parseTerm) ps))
-        pure (StUninterpreted "multiple parses")
-    premise range s = do
+        pure (StUninterpreted (offsets <$> lineRange) "multiple parses")
+    offsets r = (fromIntegral (Range.start r), fromIntegral (Range.end r))
+    premise range lineRange s = do
       let (s', name) = ruleNameParse s
       st <- case embeddedQuotations s' of
         Just qs -> do
           -- embedded prover code: each quotation is a term of user syntax,
           -- and the code with -ARG- in their place names the node
-          terms <- forM qs $ \q -> parseWith userSyntaxTransform "user_syntax" q range
+          terms <- forM qs $ \q -> parseWith userSyntaxTransform "user_syntax" q range Nothing
           pure (StNode "fancy_formula" (embeddingString s') (map SteSt terms))
-        Nothing -> parseWith userSyntaxTransform "formula" s' range
+        Nothing -> parseWith userSyntaxTransform "formula" s' range lineRange
       pure (name, st)
     -- a rule's homs are checked with no elements in scope: references
     -- become terminals (Ott's cd_hom Hu_drule)

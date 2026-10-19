@@ -98,7 +98,7 @@ symtermR m st = case st of
   StNode ntr pn es -> StNode ntr pn (map (steR m) es)
   StNonterm ntrp nt -> StNonterm (ntrR m ntrp) (ntR m nt)
   StNontermSub l t nt -> StNontermSub (ntrR m l) (ntrR m t) (ntR m nt)
-  StUninterpreted _ -> st
+  StUninterpreted _ _ -> st
 
 steR :: Renaming -> Ste -> Ste
 steR m ste = case ste of
@@ -166,7 +166,7 @@ symtermsNts = concatMap st
       StNode _ _ es -> concatMap ste es
       StNonterm _ nt -> [nt]
       StNontermSub _ _ nt -> [nt]
-      StUninterpreted _ -> []
+      StUninterpreted _ _ -> []
     ste e = case e of
       SteSt s -> st s
       SteList stlis -> concatMap stli stlis

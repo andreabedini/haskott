@@ -126,8 +126,8 @@ makeTex opts picky spec =
 quotationParser :: ParsePolicy -> TermParser -> Text -> Symterm
 quotationParser policy tp s = case justOneParse policy userSyntaxTransform tp "user_syntax" False s of
   Parsed p -> parseTerm p
-  NoParses -> StUninterpreted (noParsesErrorString tp "user_syntax" False s)
-  MultipleParses _ -> StUninterpreted "multiple parses"
+  NoParses -> StUninterpreted Nothing (noParsesErrorString tp "user_syntax" False s)
+  MultipleParses _ -> StUninterpreted Nothing "multiple parses"
 
 ------------------------------------------------------------------------
 -- Dialect leaves
@@ -513,7 +513,7 @@ ppSymterm env sie st = case st of
   StNode ntr pn es -> ppNodeBody env sie ntr pn es
   StNonterm _ nt -> ppNonterm env sie nt
   StNontermSub _ _ nt -> ppNonterm env sie nt
-  StUninterpreted s
+  StUninterpreted _ s
     | typst env ->
         let s' = "mono(" <> typstString ("<<" <> s <> ">>") <> ")"
          in if colour then "#text(fill: red, $" <> s' <> "$)" else s'
@@ -570,7 +570,7 @@ ppElements env sie includeTerminals = go
       ([], []) -> []
       (Terminal tm : pes, _) ->
         if includeTerminals then (ppTerminal env tm, classifyTerminal tm) : go pes es else go pes es
-      (_, SteSt (StUninterpreted s) : es') -> (ppUninterpreted env s, classifyTerminal s) : go prodEs es'
+      (_, SteSt (StUninterpreted _ s) : es') -> (ppUninterpreted env s, classifyTerminal s) : go prodEs es'
       (Nonterm {} : pes, SteSt (StNonterm _ nt) : es') -> (ppNonterm env sie nt, TtcNt) : go pes es'
       (Nonterm {} : pes, SteSt (StNontermSub _ _ nt) : es') -> (ppNonterm env sie nt, TtcNt) : go pes es'
       (Nonterm {} : pes, SteSt (StNode ntr pn es'') : es') -> (ppNodeBody env sie ntr pn es'', TtcNt) : go pes es'
@@ -1006,7 +1006,7 @@ countsString processed =
 
 hasUninterpreted :: Symterm -> Bool
 hasUninterpreted st = case st of
-  StUninterpreted _ -> True
+  StUninterpreted _ _ -> True
   StNode _ _ es -> any ste es
   _ -> False
   where

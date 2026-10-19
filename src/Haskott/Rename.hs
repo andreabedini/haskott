@@ -655,7 +655,7 @@ renameSymterm rn st = case st of
   StNode ntr pn es -> StNode (rn ntr) (renameProdName rn pn) (map ste es)
   StNonterm ntr (r, s) -> StNonterm (rn ntr) (rn r, suff s)
   StNontermSub l t (r, s) -> StNontermSub (rn l) (rn t) (rn r, suff s)
-  StUninterpreted s -> StUninterpreted s
+  StUninterpreted l s -> StUninterpreted l s
   where
     suff = map (renameSuffixItem rn)
     ste e = case e of

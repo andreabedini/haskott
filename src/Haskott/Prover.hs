@@ -37,7 +37,7 @@ targetOfOutput f
 -- compare the parses of an ambiguous term.
 renderProverSymterm :: Target -> ProverOptions -> Spec -> Symterm -> Text
 renderProverSymterm t opts spec st =
-  let env = makeEnv t opts (Deps [] [] []) [] (const (StUninterpreted "")) spec
+  let env = makeEnv t opts (Deps [] [] []) [] (const (StUninterpreted Nothing "")) spec
    in case runP (initialPState 0) (ppSymterm env [] deEmpty st) of
         Right (s, _) -> s
         Left e -> e

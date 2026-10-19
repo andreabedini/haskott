@@ -114,7 +114,7 @@ ntsUsedInLhss r = concatMap (nts . canonicalNode (ruleName r)) (ruleProds r)
       StNode _ _ es -> concatMap ste es
       StNonterm _ nt -> [nt]
       StNontermSub _ _ nt -> [nt]
-      StUninterpreted _ -> []
+      StUninterpreted _ _ -> []
     ste e = case e of
       SteSt s -> nts s
       SteList stlis -> concatMap stli stlis
@@ -172,7 +172,7 @@ asciiSymterm env sie st = case st of
   StNode ntr pn es -> asciiNodeBody env sie ntr pn es
   StNonterm _ nt -> asciiNonterm env sie nt
   StNontermSub _ _ nt -> asciiNonterm env sie nt
-  StUninterpreted s -> "(*" <> s <> "*)"
+  StUninterpreted _ s -> "(*" <> s <> "*)"
 
 asciiNodeBody :: Env -> Suffix -> Text -> Text -> [Ste] -> Text
 asciiNodeBody env sie ntr pn es =
@@ -202,7 +202,7 @@ asciiElements env sie includeTerminals = go
       (Nonterm {} : pes, SteSt (StNonterm _ nt) : es') -> asciiNonterm env sie nt : go pes es'
       (Nonterm {} : pes, SteSt (StNontermSub _ _ nt) : es') -> asciiNonterm env sie nt : go pes es'
       (Nonterm {} : pes, SteSt (StNode ntr pn es'') : es') -> asciiNodeBody env sie ntr pn es'' : go pes es'
-      (_, SteSt (StUninterpreted s) : es') -> ("(*" <> s <> "*)") : go prodEs es'
+      (_, SteSt (StUninterpreted _ s) : es') -> ("(*" <> s <> "*)") : go prodEs es'
       (Metavar {} : pes, SteMetavar _ mv : es') -> asciiMetavar env sie mv : go pes es'
       (Metavar {} : pes, SteVar _ v : es') -> v : go pes es'
       (ListForm lb : pes, SteList stlis : es') -> asciiListItems env sie (lbSeparator lb) (lbElements lb) stlis ++ go pes es'

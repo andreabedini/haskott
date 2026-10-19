@@ -23,7 +23,9 @@ data Symterm
   -- ^ primary root; root as written and suffix
   | StNontermSub Text Text (Text, Suffix)
   -- ^ the subrule's root, the top root, the nonterminal as written
-  | StUninterpreted Text
+  | StUninterpreted (Maybe (Int, Int)) Text
+  -- ^ the byte range of the line it comes from, when known, and the
+  -- message
   deriving (Eq, Ord, Show)
 
 data Ste
@@ -45,7 +47,7 @@ ppPlainSymterm st = case st of
   StNode ntr pn es -> "(St_node :" <> ntr <> ":" <> pn <> ": " <> T.unwords (map ppPlainSte es) <> ")"
   StNonterm _ (n, suff) -> "(St_nonterm " <> n <> ppSuffix suff <> ")"
   StNontermSub _ _ (n, suff) -> "(St_nontermsub " <> n <> ppSuffix suff <> ")"
-  StUninterpreted s -> "(St_uninterpreted " <> s <> ")"
+  StUninterpreted _ s -> "(St_uninterpreted " <> s <> ")"
 
 ppPlainSte :: Ste -> Text
 ppPlainSte ste = case ste of

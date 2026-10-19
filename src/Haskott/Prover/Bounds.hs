@@ -45,7 +45,7 @@ ntOrMvOfSymterm be st = case st of
   StNode _ _ es -> concatMap (ntOrMvOfSte be) es
   StNonterm _ (ntr, sf) -> [(((Ntr ntr, sf), Nothing), findBounds be sf)]
   StNontermSub ntrl ntrt (ntr, sf) -> [(((Ntr ntr, sf), Just (ntrl, ntrt)), findBounds be sf)]
-  StUninterpreted _ -> []
+  StUninterpreted _ _ -> []
 
 ntOrMvOfSte :: [Bound] -> Ste -> [Item]
 ntOrMvOfSte be ste = case ste of

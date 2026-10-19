@@ -164,7 +164,7 @@ mergeSt mode depth a b = case (a, b) of
   (StNontermSub lo top (r, s), StNontermSub lo' top' (r', s')) | lo == lo' && top == top' && r == r' -> do
     (pbo, s'') <- mergeSuffixMode mode depth s s'
     Just (pbo, StNontermSub lo top (r, s''))
-  (StUninterpreted s, StUninterpreted s') | s == s' -> Just (Nothing, a)
+  (StUninterpreted _ s, StUninterpreted _ s') | s == s' -> Just (Nothing, a)
   _ -> Nothing
 
 -- | 'mergeSuffix' with the canonical-pair treatment of differing items.
@@ -230,7 +230,7 @@ abstractIndexvarSte ivr depth ste = case ste of
       StNode n p es -> StNode n p (map (abstractIndexvarSte ivr depth) es)
       StNonterm p (r, suff) -> StNonterm p (r, abstractSuffix suff)
       StNontermSub lo top (r, suff) -> StNontermSub lo top (r, abstractSuffix suff)
-      StUninterpreted _ -> st
+      StUninterpreted _ _ -> st
     abstractStli stli = case stli of
       StliSingle es -> StliSingle (map (abstractIndexvarSte ivr depth) es)
       StliListform b es -> StliListform b (map (abstractIndexvarSte ivr (depth + 1)) es)

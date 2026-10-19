@@ -332,7 +332,7 @@ proverOutputs prepared job vertex0 = do
       Left d -> Left (diagMessage d <> "\n")
       Right (s, p, mvr, ntr) -> Right (s, p, renameDeps mvr ntr deps0, [(f, renameEntry mvr ntr e) | (f, e) <- structure0])
     _ -> Right (pjSpec job, pjProcessed job, deps0, structure0)
-  let env = (makeEnv t opts deps (prAuxfnTypes prepared) (pjQuotation job) spec) {envParse = pjParse job}
+  let env = (makeEnv t opts deps (prAuxfnTypes prepared) (pjQuotation job) spec) {envParse = pjParse job, envLoc = locText (pjInputs job)}
   if pjMerge job then mergedOutput env processed structure job vertex0 else structuredOutput env processed structure job vertex0
 
 -- | Ott's @pp_systemdefn@, used with @-merge true@: one file, the
@@ -500,7 +500,7 @@ expansion env structure vertex0
   | isCoq env && optCoqExpandLists (envOpts env) =
       let dummy = fromMaybe (error "range") (Range.fromEnds 0 0)
           ex = expandLists env (\funcs -> EntryEmbed (Embed "coq" [EmbedString funcs] dummy)) [(f, case e of EntryRs ns -> Left ns; _ -> Right e) | (f, e) <- structure] vertex0
-          envX = (makeEnv (envTarget env) (envOpts env) (exDeps ex) (exAuxfns ex) (envQuotation env) (exSpec ex)) {envParse = envParse env}
+          envX = (makeEnv (envTarget env) (envOpts env) (exDeps ex) (exAuxfns ex) (envQuotation env) (exSpec ex)) {envParse = envParse env, envLoc = envLoc env}
           st = (initialPState (exVertex ex)) {psCoqListTypes = exListTypes ex, psCoqListAuxFuncs = exListAuxFuncs ex}
        in (envX, [(f, either EntryRs id e) | (f, e) <- exStructure ex], st)
   | otherwise = (env, structure, initialPState vertex0)
@@ -571,6 +571,33 @@ ppEmbed env em
         let st = envQuotation env s
         (de, _) <- either (\m -> failP ("\nError in generating output:\n" <> m <> "\n")) pure (boundExtraction env [st])
         ppSymterm env [] de st
+
+-- | Ott's @pp_loc@ of a range of the sources (Ott's rule lines end after
+-- their newline).
+locText :: [Input] -> Maybe (Int, Int) -> Text
+locText inputs r = case r of
+  Nothing -> ""
+  Just (s, e) ->
+    let i = case [x | x <- inputs, inBase x <= s] of
+          [] -> fromMaybe (error "Haskott.Prover.System: no input") (listToMaybe inputs)
+          xs -> last xs
+        bytes = TE.encodeUtf8 (inText i)
+        s' = s - inBase i
+        e0 = e - inBase i
+        e' = if e0 < B.length bytes && B.index bytes e0 == 10 then e0 + 1 else e0
+        pos o =
+          let before = B.take o bytes
+           in (B.count 10 before + 1, o - maybe 0 (+ 1) (B.elemIndexEnd 10 before))
+        (l1, c1) = pos s'
+        (l2, c2) = pos e'
+        file = "File " <> T.pack (inPath i) <> " on "
+        n = T.pack . show
+     in if l1 == l2
+          then file <> "line " <> n l1 <> ", column " <> n c1 <> " - " <> n c2
+          else
+            if c1 == 0 && c2 == 0
+              then file <> "line " <> n l1 <> " - " <> n l2
+              else file <> "line " <> n l1 <> ", column " <> n c1 <> " - " <> "line " <> n l2 <> ", column " <> n c2
 
 -- | The collapsed structure, for debugging.
 debugStructure :: [Input] -> Spec -> Text

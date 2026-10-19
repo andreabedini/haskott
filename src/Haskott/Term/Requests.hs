@@ -37,7 +37,7 @@ termRequests spec = concatMap fromClass (specDefnClasses spec) ++ concatMap from
     fromClass dc = concatMap (fromDefn dc) (dcDefns dc)
     fromDefn dc d = concatMap (fromRule (dcWrapper dc <> dName d)) (dBody d)
     fromRule pn r = case r of
-      LinedRule premises _ _ conclusions range ->
+      LinedRule premises _ _ conclusions range _ _ ->
         concatMap (premise range) premises ++ [TermRequest "formula" c Conclusion pn range | c <- conclusions]
       LinelessRule ls range -> [TermRequest "formula" (T.intercalate " " ls) Formula pn range | not (null ls)]
       DefnComRule es range -> [TermRequest "user_syntax" q Quotation pn range | q <- [s | EmbedInner s <- es]]

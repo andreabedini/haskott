@@ -35,10 +35,12 @@ module Haskott.Raw
   , mergeFragments
   ) where
 
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Graft
 import qualified Graft.Cursor as Cursor
+import qualified Graft.Range as Range
 import Haskott.Syntax.Ast hiding
   ( Bindspec, CompBound, Contextrule, Defn, Document, Embed, Freevar, Hom, Item (..), Mse
   , ParsingAnnotation, Prod, Rule, Subrule, Substitution
@@ -236,9 +238,10 @@ data Defn = Defn
 -- | A rule as lines of text (GRAMMAR.md §4). Lines keep their indentation,
 -- as Ott's @LINE@ token does.
 data SemirawRule
-  = LinedRule [Text] Text RuleAnnot [Text] TextRange
+  = LinedRule [Text] Text RuleAnnot [Text] TextRange [TextRange] [TextRange]
   -- ^ premises, the annotation after the dashes as written and parsed,
-  -- conclusions
+  -- conclusions, the rule's range, and the ranges of the premise and
+  -- conclusion lines
   | LinelessRule [Text] TextRange
   | DefnComRule [EmbedEl] TextRange
   deriving (Eq, Show)
@@ -506,23 +509,25 @@ defn d =
 -- as trivia, inside a rule node when Rule 2 gave them to it, so the body is
 -- flattened back into lines here.
 defnBlocks :: A.Defn -> [SemirawRule]
-defnBlocks d = go Nothing False (linesAfterBy (nodeSyntax d))
+defnBlocks d = go Nothing Nothing (linesAfterBy (nodeSyntax d))
   where
     -- current: the rule of the open block, if any; open: whether a block is
     -- open (comment lines seen); lines: remaining
     go current open ls = case ls of
       [] -> close current open
       l : more -> case l of
-        LBlank -> close current open ++ go Nothing False more
-        LComment -> go current True more
-        LNode b -> go (Just b) True more
+        LBlank -> close current open ++ go Nothing Nothing more
+        LComment off -> go current (Just (fromMaybe off open)) more
+        LNode b off -> go (Just b) (Just (fromMaybe off open)) more
+    -- open: the offset of the block's first line, comment lines included
     close current open = case (current, open) of
-      (Just b, _) -> [bodyItem b]
-      (Nothing, True) -> [LinelessRule [] emptyRange]
-      (Nothing, False) -> []
+      (Just b, start) -> [bodyItem start b]
+      (Nothing, Just _) -> [LinelessRule [] emptyRange]
+      (Nothing, Nothing) -> []
     emptyRange = Cursor.range (nodeSyntax d)
 
-data BodyLine = LBlank | LComment | LNode BodyItem
+-- | A line of a definition body, with the offset it starts at.
+data BodyLine = LBlank | LComment Int | LNode BodyItem Int
 
 -- | The lines of a definition body after @by@, classified. A line is blank
 -- when it holds only whitespace or a block comment, a comment line when it
@@ -533,7 +538,7 @@ linesAfterBy :: C -> [BodyLine]
 linesAfterBy c =
   classify
     ( concatMap flatten (dropWhile (not . isBy) (Cursor.children c))
-        ++ map PTok (followingTrivia c)
+        ++ map (uncurry PTok) (followingTrivia c)
     )
   where
     isBy t = Cursor.kind t == K.Keyword && A.tokenValue t == T.pack "by"
@@ -541,48 +546,57 @@ linesAfterBy c =
       Just b ->
         let kids = Cursor.children t
             trailing = reverse (takeWhile (K.isTrivia . Cursor.kind) (reverse kids))
-         in PNode b : map (PTok . Cursor.kind) trailing
-      Nothing -> [PTok (Cursor.kind t)]
+         in PNode b (startOf t) : map (\x -> PTok (Cursor.kind x) (startOf x)) trailing
+      Nothing -> [PTok (Cursor.kind t) (startOf t)]
+    startOf x = fromIntegral (Range.start (Cursor.range x))
     classify pieces = case pieces of
       [] -> []
       _ ->
         let (line, rest) = break isNewline pieces
             rest' = drop 1 rest
+            lineStart = case line of
+              p : _ -> pieceStart p
+              [] -> 0
             cls
-              | any isNode line = LNode (headNode line)
-              | any (== PTok K.LineComment) line = LComment
+              | any isNode line = LNode (headNode line) lineStart
+              | any (isKind K.LineComment) line = LComment lineStart
               | otherwise = LBlank
          in case rest of
               [] | null line -> []
               _ -> cls : classify rest'
-    isNewline p = p == PTok K.Newline
+    isNewline = isKind K.Newline
+    isKind k p = case p of
+      PTok k' _ -> k' == k
+      PNode _ _ -> False
+    pieceStart p = case p of
+      PTok _ o -> o
+      PNode _ o -> o
     isNode p = case p of
-      PNode _ -> True
+      PNode _ _ -> True
       _ -> False
-    headNode line = case [b | PNode b <- line] of
+    headNode line = case [b | PNode b _ <- line] of
       (b : _) -> b
       [] -> error "linesAfterBy: no node"
 
 -- | The trivia tokens that follow a node in the document, up to the next
 -- syntax token. The body of a definition runs on to the next keyword line,
 -- but the tree gives the trivia after a node to its ancestors.
-followingTrivia :: C -> [Kind]
+followingTrivia :: C -> [(Kind, Int)]
 followingTrivia c = case Cursor.lastToken c of
   Nothing -> []
   Just lastTok -> go (Cursor.nextToken lastTok)
   where
     go m = case m of
-      Just t | K.isTrivia (Cursor.kind t) -> Cursor.kind t : go (Cursor.nextToken t)
+      Just t | K.isTrivia (Cursor.kind t) -> (Cursor.kind t, fromIntegral (Range.start (Cursor.range t))) : go (Cursor.nextToken t)
       _ -> []
 
-data Piece = PTok Kind | PNode BodyItem
+-- | A token or a rule of a definition body, with its offset.
+data Piece = PTok Kind Int | PNode BodyItem Int
 
-instance Eq Piece where
-  PTok a == PTok b = a == b
-  _ == _ = False
-
-bodyItem :: BodyItem -> SemirawRule
-bodyItem b = case b of
+-- | A rule of a definition body; a lineless one's range starts at the
+-- block's first line, comment lines included, as Ott's location does.
+bodyItem :: Maybe Int -> BodyItem -> SemirawRule
+bodyItem blockStart b = case b of
   BodyRule r ->
     LinedRule
       (map lineOf (drulePremises r))
@@ -592,7 +606,14 @@ bodyItem b = case b of
         Nothing -> RuleAnnot [] T.empty [])
       (map lineOf (druleConclusions r))
       (Cursor.range (nodeSyntax r))
-  BodyLineless l -> LinelessRule (map lineOf (linelessFormulas l)) (Cursor.range (nodeSyntax l))
+      (map (Cursor.range . nodeSyntax) (drulePremises r))
+      (map (Cursor.range . nodeSyntax) (druleConclusions r))
+  BodyLineless l ->
+    let r = Cursor.range (nodeSyntax l)
+        r' = case blockStart of
+          Just s | fromIntegral s < Range.start r -> fromMaybe r (Range.fromEnds (fromIntegral s) (Range.end r))
+          _ -> r
+     in LinelessRule (map lineOf (linelessFormulas l)) r'
   BodyDefnCom c -> DefnComRule (map embedEl (defnComBody c)) (Cursor.range (nodeSyntax c))
 
 -- | A line as Ott's @LINE@ token has it: indentation included.

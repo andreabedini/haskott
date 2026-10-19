@@ -203,6 +203,8 @@ data Env = Env
   , envParse :: Text -> Text -> [Symterm]
   -- ^ every parse of a text as a term of a root, in order (none unless
   -- set: the printers of context rules need it)
+  , envLoc :: Maybe (Int, Int) -> Text
+  -- ^ a range of the sources as Ott prints a location
   }
 
 makeEnv :: Target -> ProverOptions -> Deps -> [(Text, ([Text], RootRef))] -> (Text -> Symterm) -> Spec -> Env
@@ -223,6 +225,7 @@ makeEnv t opts deps axs quotation spec =
     , envAuxfnTypes = axs
     , envQuotation = quotation
     , envParse = \_ _ -> []
+    , envLoc = const ""
     }
 
 isCoq, isIsa, isHol, isLem, isCaml :: Env -> Bool
