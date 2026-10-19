@@ -113,7 +113,7 @@ main = do
                               pure (combine ([typ, tex] ++ provers))
                   _ -> pure Nothing
   let failures = [f | Just f <- results]
-  putStrLn (show (length entries) ++ " files compared with ott -showraw, -show_sort, -parse, TeX and Typst output, " ++ show (length failures) ++ " disagreements")
+  putStrLn (show (length entries) ++ " files compared with ott -showraw, -show_sort, -parse, TeX, Typst and " ++ T.unpack (T.intercalate ", " (map targetName proverTargets)) ++ " output, " ++ show (length failures) ++ " disagreements")
   mapM_ putStrLn failures
   unless (null failures) exitFailure
   where
