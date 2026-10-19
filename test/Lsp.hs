@@ -15,6 +15,7 @@ import Control.Applicative.Combinators (skipManyTill)
 import Control.Lens ((^.))
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
+import Data.Bits (testBit)
 import qualified Data.Text as T
 import qualified Language.LSP.Protocol.Lens as L
 import Language.LSP.Protocol.Message (FromServerMessage' (..), SMethod (..), TNotificationMessage (..), TResponseMessage (..))
@@ -111,15 +112,22 @@ navigation = do
     _ -> False
   TResponseMessage _ _ clash <- request SMethod_TextDocumentRename (RenameParams Nothing u (Position 7 6) "t")
   check "x cannot become t, a root already" (either (const True) (const False) clash)
-  -- line 8 of u.ott, a rule line, and line 6 of s.ott, a production
+  -- u.ott: line 7, a rule name, and line 8, a rule line; s.ott: line 1,
+  -- a declaration, and line 6, a production
   ut <- semanticTokens u
-  let rule = [(c, ty) | (7, c, _, ty) <- ut]
-  check ("the tokens of the rule line, got " ++ show rule) $
-    rule == [(2, "operator"), (4, "operator"), (6, "parameter"), (8, "operator"), (10, "variable"), (12, "operator"), (14, "variable"), (17, "operator"), (21, "variable")]
+  let at toks n = [(c, ty, mods) | (l, c, _, ty, mods) <- toks, l == n]
+  check ("the tokens of the rule name, got " ++ show (at ut 6)) $
+    at ut 6 == [(2, "operator", []), (29, "operator", []), (32, "method", [])]
+  check ("the tokens of the rule line, got " ++ show (at ut 7)) $
+    map (\(c, ty, _) -> (c, ty)) (at ut 7) == [(2, "operator"), (4, "operator"), (6, "parameter"), (8, "operator"), (10, "variable"), (12, "operator"), (14, "variable"), (17, "operator"), (21, "variable")]
   st <- semanticTokens s
-  let prod = [(c, ty) | (5, c, _, ty) <- st]
-  check ("the elements of the lam production, got " ++ show prod) $
-    prod == [(4, "operator"), (6, "parameter"), (8, "operator"), (10, "variable")]
+  check ("the tokens of the declaration of x, got " ++ show (at st 0)) $
+    at st 0
+      == [ (0, "keyword", []), (8, "parameter", ["declaration"]), (15, "operator", []), (17, "parameter", ["declaration"]), (19, "operator", [])
+         , (23, "operator", []), (26, "macro", []), (30, "comment", ["documentation"]), (35, "comment", ["documentation"]), (44, "operator", [])
+         ]
+  check ("the tokens of the lam production, got " ++ show (at st 5)) $
+    map (\(c, ty, _) -> (c, ty)) (at st 5) == [(2, "operator"), (4, "operator"), (6, "parameter"), (8, "operator"), (10, "variable"), (12, "operator"), (15, "operator"), (18, "enumMember")]
   TResponseMessage _ _ renamed <- request SMethod_TextDocumentRename (RenameParams Nothing u (Position 7 6) "y")
   edits <- case renamed of
     Right (InL e) -> pure [(T.unpack (getUri (tde ^. L.textDocument . L.uri)), length (tde ^. L.edits)) | Just changes <- [e ^. L.documentChanges], InL tde <- changes]
@@ -128,8 +136,9 @@ navigation = do
   check ("renaming x to y reaches s, u, v and the document, got " ++ show counts) $
     all (`elem` counts) [("s.ott", 3), ("u.ott", 1), ("v.ott", 1), ("doc.typ", 2)] && length counts == 4
 
--- | A document's semantic tokens: line, column, length and type.
-semanticTokens :: TextDocumentIdentifier -> Session [(UInt, UInt, UInt, T.Text)]
+-- | A document's semantic tokens: line, column, length, type and
+-- modifiers.
+semanticTokens :: TextDocumentIdentifier -> Session [(UInt, UInt, UInt, T.Text, [T.Text])]
 semanticTokens doc = do
   r <- getSemanticTokens doc
   pure $ case r of
@@ -137,10 +146,12 @@ semanticTokens doc = do
     InR Null -> []
   where
     types = defaultSemanticTokensLegend ^. L.tokenTypes
-    absolute l c (dl : dc : len : ty : _ : more) =
+    modifiers = defaultSemanticTokensLegend ^. L.tokenModifiers
+    absolute l c (dl : dc : len : ty : mods : more) =
       let l' = l + dl
           c' = if dl == 0 then c + dc else dc
-       in (l', c', len, types !! fromIntegral ty) : absolute l' c' more
+          set = [m | (i, m) <- zip [0 :: Int ..] modifiers, testBit (fromIntegral mods :: Int) i]
+       in (l', c', len, types !! fromIntegral ty, set) : absolute l' c' more
     absolute _ _ _ = []
 
 references :: TextDocumentIdentifier -> Position -> Bool -> Session [Location]

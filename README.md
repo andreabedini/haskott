@@ -134,17 +134,22 @@ not about.
     the edit reaches, so a file shared by two specifications is renamed in
     both. The edit names the versions of the open files it was computed
     from, so an editor refuses it if a file changed meanwhile.
-  - Semantic tokens: what the grammar makes of each identifier
-    (`Haskott.Highlight`), for highlighting with an editor's grammar of
-    the metalanguage such as tree-sitter-ott. The terms of rule lines,
-    clauses and quotations are classified by their parse, and the
-    elements of productions and forms, comprehension bounds, binding
-    specifications and hom references by Ott's identifier lexer:
-    terminals as keywords (alphanumeric) or operators, nonterminals as
-    variables, metavariables as parameters, index variables as type
-    parameters, `lex` variables as strings, `:prodname:` as macros, and
-    dots and comprehension delimiters as operators. Rule lines are
-    classified only while the specification has no errors.
+  - Semantic tokens: every token classified (`Haskott.Highlight`), so
+    that an editor with no grammar of Ott can highlight from them alone.
+    What the grammar makes of each identifier comes from the term parse
+    for rule lines, clauses and quotations, and from Ott's identifier
+    lexer for the elements of productions and forms, comprehension
+    bounds, binding specifications, hom references and the roots of
+    subrules, substitutions and the like: terminals as keywords
+    (alphanumeric) or operators, nonterminals as variables, metavariables
+    as parameters, index variables as type parameters, `lex` variables as
+    strings. The other names by their place: productions as enum members,
+    judgements and functions as functions, rule names as methods,
+    categories as modifiers, prefixes and groups as namespaces, with
+    `declaration` on the roots a declaration names. Keywords, punctuation
+    and comments as such, hom names as macros, hom bodies as strings and
+    `com` homs as documentation comments. Rule lines are classified only
+    while the specification has no errors.
 
   `cabal test lsp` drives the server through a client.
 - Not yet done: TeX output, Ott's remaining checks (bounds consistency at

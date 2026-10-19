@@ -496,16 +496,25 @@ semanticTokensHandler st =
           runLspT env (respond (either (Left . failed) (Right . L.InL) r))
       _ -> respond (Right (L.InR L.Null))
 
-semanticTokens :: Text -> [(Int, Int, Class)] -> [L.SemanticTokenAbsolute]
-semanticTokens src tokens =
-  [ L.SemanticTokenAbsolute (fromIntegral l) (fromIntegral c) (fromIntegral (c' - c)) (tokenType cls) []
-  | (a, b, cls) <- tokens
-  , Just (Utf16Position l c) <- [LineIndex.utf16Position (fromIntegral a) index]
-  , Just (Utf16Position l' c') <- [LineIndex.utf16Position (fromIntegral b) index]
-  , l == l'
+-- | Tokens for the client, which takes no token across lines: a block
+-- comment is one token for each of its lines.
+semanticTokens :: Text -> [Highlight] -> [L.SemanticTokenAbsolute]
+semanticTokens src hls =
+  [ L.SemanticTokenAbsolute (fromIntegral (l + i)) (fromIntegral (if i == 0 then c else 0)) (utf16Length piece) (tokenType (hlClass h)) (modifiers h)
+  | h <- hls
+  , Just (Utf16Position l c) <- [LineIndex.utf16Position (fromIntegral (hlStart h)) index]
+  , (i, piece) <- zip [0 ..] (T.splitOn "\n" (slice (hlStart h) (hlEnd h)))
+  , let piece' = T.dropWhileEnd (== '\r') piece
+  , not (T.null piece')
   ]
   where
     index = LineIndex.fromText src
+    bytes = TE.encodeUtf8 src
+    slice a b = TE.decodeUtf8Lenient (B.take (b - a) (B.drop a bytes))
+    utf16Length = fromIntegral . T.foldl' (\n ch -> n + if fromEnum ch >= 0x10000 then 2 else 1) (0 :: Int) . T.dropWhileEnd (== '\r')
+    modifiers h =
+      [L.SemanticTokenModifiers_Declaration | hlDeclaration h]
+        ++ [L.SemanticTokenModifiers_Documentation | hlClass h == Documentation]
     tokenType cls = case cls of
       Terminal -> L.SemanticTokenTypes_Keyword
       Operator -> L.SemanticTokenTypes_Operator
@@ -513,7 +522,18 @@ semanticTokens src tokens =
       Metavariable -> L.SemanticTokenTypes_Parameter
       IndexVariable -> L.SemanticTokenTypes_TypeParameter
       Variable -> L.SemanticTokenTypes_String
-      ProdName -> L.SemanticTokenTypes_Macro
+      Pseudo -> L.SemanticTokenTypes_Macro
       Number -> L.SemanticTokenTypes_Number
       ListSyntax -> L.SemanticTokenTypes_Operator
       Label -> L.SemanticTokenTypes_Decorator
+      Production -> L.SemanticTokenTypes_EnumMember
+      Definition -> L.SemanticTokenTypes_Function
+      RuleName -> L.SemanticTokenTypes_Method
+      Category -> L.SemanticTokenTypes_Modifier
+      Group -> L.SemanticTokenTypes_Namespace
+      MetaKeyword -> L.SemanticTokenTypes_Keyword
+      Punctuation -> L.SemanticTokenTypes_Operator
+      Comment -> L.SemanticTokenTypes_Comment
+      Documentation -> L.SemanticTokenTypes_Comment
+      HomName -> L.SemanticTokenTypes_Macro
+      HomBody -> L.SemanticTokenTypes_String
