@@ -12,6 +12,11 @@
 -- the same specification cancels it, since checking the Haskell report
 -- takes a second or two. A file that is part of several specifications
 -- shows the problems of all of them.
+--
+-- Semantic tokens say what the grammar of a specification makes of its
+-- identifiers ('Haskott.Highlight'): terminals, nonterminals,
+-- metavariables and index variables, in rule lines, productions and
+-- quotations. The rest is left to the editor's grammar of Ott.
 module Server (serverMain) where
 
 import Control.Concurrent (ThreadId, forkIO, killThread, myThreadId, threadDelay)
@@ -31,12 +36,14 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Graft (Position (..))
+import qualified Graft.Green as Green
 import qualified Graft.LineIndex as LineIndex
 import qualified Graft.Range as Range
 import Haskott.Diagnostics
+import Haskott.Highlight
 import Haskott.Outline
 import Haskott.Project
-import Haskott.Rename (Edit (..), FileRename (..), Index, declarations, indexRenameable, indexSpec, occurrences, renameRoot, rootAt)
+import Haskott.Rename (Edit (..), FileRename (..), Index, declarations, indexRenameable, indexRoots, indexSpec, indexTree, occurrences, renameRoot, rootAt)
 import qualified Haskott.Rename as Rename
 import Haskott.Syntax (parseDocumentRecovering)
 import Haskott.Spec (Diagnostic (..))
@@ -100,6 +107,7 @@ handlers st =
     , notificationHandler L.SMethod_WorkspaceDidChangeConfiguration (const (pure ()))
     , navigationHandlers st
     , renameHandlers st
+    , semanticTokensHandler st
     ]
 
 -- | Check again the specifications a file is part of.
@@ -464,3 +472,48 @@ renameAcross project snapshot start old new = reach [] start >>= merge
       L.TextDocumentEdit
         (L.OptionalVersionedTextDocumentIdentifier (L.filePathToUri (frPath fr)) (version (frPath fr)))
         [L.InL (L.TextEdit (rangeOf (frOld fr) (editStart e, editEnd e)) (editNew e)) | e <- frEdits fr]
+
+------------------------------------------------------------------------
+-- Semantic tokens
+
+-- | The tokens of the first specification of a file that has it, from
+-- another thread, since building an index can take seconds. Positions are
+-- taken from the tree's own text, so they match the index even if the
+-- file changed meanwhile.
+semanticTokensHandler :: State -> Handlers (LspM ())
+semanticTokensHandler st =
+  requestHandler L.SMethod_TextDocumentSemanticTokensFull $ \req respond ->
+    case L.uriToFilePath (req ^. LSP.params . LSP.textDocument . LSP.uri) of
+      Just f | takeExtension f == ".ott" -> do
+        let file = normalise f
+        ixs <- indexesFor st file
+        env <- getLspEnv
+        void . liftIO . forkIO $ do
+          let tokens = case mapMaybe (\ix -> (,) ix <$> indexTree ix file) ixs of
+                (ix, tree) : _ -> semanticTokens (Green.renderNode tree) (highlights (indexRoots ix) tree)
+                [] -> []
+          r <- evaluate (force (L.makeSemanticTokens L.defaultSemanticTokensLegend tokens))
+          runLspT env (respond (either (Left . failed) (Right . L.InL) r))
+      _ -> respond (Right (L.InR L.Null))
+
+semanticTokens :: Text -> [(Int, Int, Class)] -> [L.SemanticTokenAbsolute]
+semanticTokens src tokens =
+  [ L.SemanticTokenAbsolute (fromIntegral l) (fromIntegral c) (fromIntegral (c' - c)) (tokenType cls) []
+  | (a, b, cls) <- tokens
+  , Just (Position l c) <- [LineIndex.utf16Position (fromIntegral a) index]
+  , Just (Position l' c') <- [LineIndex.utf16Position (fromIntegral b) index]
+  , l == l'
+  ]
+  where
+    index = LineIndex.fromText src
+    tokenType cls = case cls of
+      Terminal -> L.SemanticTokenTypes_Keyword
+      Operator -> L.SemanticTokenTypes_Operator
+      Nonterminal -> L.SemanticTokenTypes_Variable
+      Metavariable -> L.SemanticTokenTypes_Parameter
+      IndexVariable -> L.SemanticTokenTypes_TypeParameter
+      Variable -> L.SemanticTokenTypes_String
+      ProdName -> L.SemanticTokenTypes_Macro
+      Number -> L.SemanticTokenTypes_Number
+      ListSyntax -> L.SemanticTokenTypes_Operator
+      Label -> L.SemanticTokenTypes_Decorator

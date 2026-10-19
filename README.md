@@ -134,6 +134,17 @@ not about.
     the edit reaches, so a file shared by two specifications is renamed in
     both. The edit names the versions of the open files it was computed
     from, so an editor refuses it if a file changed meanwhile.
+  - Semantic tokens: what the grammar makes of each identifier
+    (`Haskott.Highlight`), for highlighting with an editor's grammar of
+    the metalanguage such as tree-sitter-ott. The terms of rule lines,
+    clauses and quotations are classified by their parse, and the
+    elements of productions and forms, comprehension bounds, binding
+    specifications and hom references by Ott's identifier lexer:
+    terminals as keywords (alphanumeric) or operators, nonterminals as
+    variables, metavariables as parameters, index variables as type
+    parameters, `lex` variables as strings, `:prodname:` as macros, and
+    dots and comprehension delimiters as operators. Rule lines are
+    classified only while the specification has no errors.
 
   `cabal test lsp` drives the server through a client.
 - Not yet done: TeX output, Ott's remaining checks (bounds consistency at

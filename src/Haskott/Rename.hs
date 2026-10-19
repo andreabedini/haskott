@@ -32,6 +32,8 @@ module Haskott.Rename
   , Index
   , indexSpec
   , indexRenameable
+  , indexRoots
+  , indexTree
   , occurrences
   , declarations
   , rootAt
@@ -729,6 +731,15 @@ indexSpec specFiles docFiles = do
 -- | The names 'renameRoot' accepts.
 indexRenameable :: Index -> [Text]
 indexRenameable = ixRenameable
+
+-- | The roots of the specification, for its identifier lexer.
+indexRoots :: Index -> Roots
+indexRoots = ixRoots
+
+-- | The tree of one of the specification's files, with its terms spliced
+-- when the specification has no errors.
+indexTree :: Index -> FilePath -> Maybe (GreenNode Kind)
+indexTree ix file = lookup file [(srcPath s, t) | (s, t) <- ixSources ix]
 
 -- | Every place a root occurs, as the bytes of the identifiers that
 -- 'renameRoot' would rewrite, in each file and document that has one.

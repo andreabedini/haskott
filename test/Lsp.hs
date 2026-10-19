@@ -5,8 +5,10 @@
 -- listed in @haskott.json@ reach the file they are about, they go when the
 -- file is fixed, and a file no specification lists is checked alone;
 -- definitions, references, highlights and the outline find the roots of
--- a specification across its files; and a rename reaches every file and
--- document of every specification it touches.
+-- a specification across its files; a rename reaches every file and
+-- document of every specification it touches; and semantic tokens tell the
+-- terminals, nonterminals and metavariables of rule lines and productions
+-- apart.
 module Main (main) where
 
 import Control.Applicative.Combinators (skipManyTill)
@@ -109,6 +111,15 @@ navigation = do
     _ -> False
   TResponseMessage _ _ clash <- request SMethod_TextDocumentRename (RenameParams Nothing u (Position 7 6) "t")
   check "x cannot become t, a root already" (either (const True) (const False) clash)
+  -- line 8 of u.ott, a rule line, and line 6 of s.ott, a production
+  ut <- semanticTokens u
+  let rule = [(c, ty) | (7, c, _, ty) <- ut]
+  check ("the tokens of the rule line, got " ++ show rule) $
+    rule == [(2, "operator"), (4, "operator"), (6, "parameter"), (8, "operator"), (10, "variable"), (12, "operator"), (14, "variable"), (17, "operator"), (21, "variable")]
+  st <- semanticTokens s
+  let prod = [(c, ty) | (5, c, _, ty) <- st]
+  check ("the elements of the lam production, got " ++ show prod) $
+    prod == [(4, "operator"), (6, "parameter"), (8, "operator"), (10, "variable")]
   TResponseMessage _ _ renamed <- request SMethod_TextDocumentRename (RenameParams Nothing u (Position 7 6) "y")
   edits <- case renamed of
     Right (InL e) -> pure [(T.unpack (getUri (tde ^. L.textDocument . L.uri)), length (tde ^. L.edits)) | Just changes <- [e ^. L.documentChanges], InL tde <- changes]
@@ -116,6 +127,21 @@ navigation = do
   let counts = [(takeFileName f, n) | (f, n) <- edits]
   check ("renaming x to y reaches s, u, v and the document, got " ++ show counts) $
     all (`elem` counts) [("s.ott", 3), ("u.ott", 1), ("v.ott", 1), ("doc.typ", 2)] && length counts == 4
+
+-- | A document's semantic tokens: line, column, length and type.
+semanticTokens :: TextDocumentIdentifier -> Session [(UInt, UInt, UInt, T.Text)]
+semanticTokens doc = do
+  r <- getSemanticTokens doc
+  pure $ case r of
+    InL toks -> absolute 0 0 (toks ^. L.data_)
+    InR Null -> []
+  where
+    types = defaultSemanticTokensLegend ^. L.tokenTypes
+    absolute l c (dl : dc : len : ty : _ : more) =
+      let l' = l + dl
+          c' = if dl == 0 then c + dc else dc
+       in (l', c', len, types !! fromIntegral ty) : absolute l' c' more
+    absolute _ _ _ = []
 
 references :: TextDocumentIdentifier -> Position -> Bool -> Session [Location]
 references doc pos decls = do

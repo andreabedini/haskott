@@ -30,6 +30,7 @@ library
         Haskott
         Haskott.Defns
         Haskott.Diagnostics
+        Haskott.Highlight
         Haskott.Load
         Haskott.Outline
         Haskott.Project
