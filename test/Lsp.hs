@@ -8,7 +8,7 @@
 -- a specification across its files; a rename reaches every file and
 -- document of every specification it touches; and semantic tokens tell the
 -- terminals, nonterminals and metavariables of rule lines and productions
--- apart.
+-- apart, also while the specification has an error elsewhere.
 module Main (main) where
 
 import Control.Applicative.Combinators (skipManyTill)
@@ -46,8 +46,7 @@ main = withSystemTempDirectory "haskott-lsp" $ \root -> do
     , "terminals :: 'terminals_' ::="
     , "  | --> :: :: red"
     ]
-  writeFile (root </> "u.ott") . unlines $
-    ["defns", "Jop :: '' ::=", "", "defn", "t --> t' :: :: reduce :: '' by", "", "  -------------------------- :: beta", "  ( \\ x . t ) t' --> t"]
+  writeFile (root </> "u.ott") (unlines uLines)
   writeFile (root </> "v.ott") . unlines $
     ["defns", "Jv :: '' ::=", "", "defn", "x --> t :: :: vred :: '' by"]
   writeFile (root </> "doc.typ") "Abstraction [[\\ x1 . x1]] binds x1.\n"
@@ -75,6 +74,9 @@ main = withSystemTempDirectory "haskott-lsp" $ \root -> do
     ott = LanguageKind_Custom "ott"
     metavarAgain = "metavar x ::= {{ com again }}\n\n"
     grammar = "grammar\nt :: t_ ::=\n  | x :: :: var\n"
+
+uLines :: [String]
+uLines = ["defns", "Jop :: '' ::=", "", "defn", "t --> t' :: :: reduce :: '' by", "", "  -------------------------- :: beta", "  ( \\ x . t ) t' --> t"]
 
 -- | The next diagnostics published for a document.
 diagnosticsFor :: Uri -> Session [Diagnostic]
@@ -135,6 +137,14 @@ navigation = do
   let counts = [(takeFileName f, n) | (f, n) <- edits]
   check ("renaming x to y reaches s, u, v and the document, got " ++ show counts) $
     all (`elem` counts) [("s.ott", 3), ("u.ott", 1), ("v.ott", 1), ("doc.typ", 2)] && length counts == 4
+  -- a broken production after the rule costs only itself: the rule line
+  -- is still classified
+  let broken = "\ngrammar\nbad :: bad_ ::=\n  | </ :: :: oops\n"
+  changeDoc u [TextDocumentContentChangeEvent (InR (TextDocumentContentChangeWholeDocument (T.pack (unlines uLines) <> broken)))]
+  du <- diagnosticsFor (u ^. L.uri)
+  check "u.ott with a broken production has a problem" (not (null du))
+  ut' <- semanticTokens u
+  check ("the tokens of the rule line with an error elsewhere, got " ++ show (at ut' 7)) (at ut' 7 == at ut 7)
 
 -- | A document's semantic tokens: line, column, length, type and
 -- modifiers.

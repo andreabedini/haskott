@@ -698,8 +698,10 @@ docSignature rn tp docs =
 -- | A specification loaded once for looking its roots up: its files with
 -- their terms spliced, and the documents filtered against it. It is
 -- loaded with recovery, so it exists as long as the early checks find a
--- specification; while there are errors the terms are not spliced, and
--- the roots of rule lines are not found.
+-- specification; while there are errors the terms are parsed with what
+-- the checker kept of the grammar, and a line with no parse there (for
+-- want of a production an error dropped, say) is left as a line, whose
+-- roots are not found.
 data Index = Index
   { ixRoots :: Roots
   , ixRenameable :: [Text]
@@ -715,9 +717,7 @@ indexSpec specFiles docFiles = do
       sources = ckSources checked
   spec <- ckSpec checked
   let tp = makeTermParser spec
-      splice s
-        | null (ckDiagnostics checked) = let (t, _, _) = spliceTerms (FirstIfSame []) tp (srcTree s) in t
-        | otherwise = srcTree s
+      splice s = let (t, _, _) = spliceTerms (FirstIfSame []) tp (srcTree s) in t
   pure
     Index
       { ixRoots = specRoots spec
@@ -736,8 +736,7 @@ indexRenameable = ixRenameable
 indexRoots :: Index -> Roots
 indexRoots = ixRoots
 
--- | The tree of one of the specification's files, with its terms spliced
--- when the specification has no errors.
+-- | The tree of one of the specification's files, with its terms spliced.
 indexTree :: Index -> FilePath -> Maybe (GreenNode Kind)
 indexTree ix file = lookup file [(srcPath s, t) | (s, t) <- ixSources ix]
 

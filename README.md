@@ -148,8 +148,10 @@ not about.
     categories as modifiers, prefixes and groups as namespaces, with
     `declaration` on the roots a declaration names. Keywords, punctuation
     and comments as such, hom names as macros, hom bodies as strings and
-    `com` homs as documentation comments. Rule lines are classified only
-    while the specification has no errors.
+    `com` homs as documentation comments. While the specification has
+    errors, rule lines are parsed with what the checker kept of the
+    grammar, so a broken production elsewhere leaves the other lines
+    classified.
 
   `cabal test lsp` drives the server through a client.
 - Not yet done: TeX output, Ott's remaining checks (bounds consistency at

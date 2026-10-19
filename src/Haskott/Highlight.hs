@@ -20,8 +20,8 @@
 -- The other identifiers are classified by their place in the construct,
 -- as "Haskott.Syntax.Ast" reads them: production, definition, rule and
 -- function names, categories, prefixes. A rule line that is not spliced,
--- because it does not parse or because the specification has errors, is
--- left out, and so is text skipped after a parse error.
+-- because it does not parse, is left out, and so is text skipped after a
+-- parse error.
 module Haskott.Highlight
   ( Class (..)
   , Highlight (..)
