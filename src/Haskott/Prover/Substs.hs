@@ -370,6 +370,8 @@ data SubstCtx = SubstCtx
   , scThat :: NtMv
   , scSub :: Text
   , scProd :: Prod
+  , scIn :: (Text, Suffix)
+  -- ^ the variable the function matches on
   }
 
 -- | The dependencies a clause collects, as Ott's reference.
@@ -404,7 +406,7 @@ ppSubstRule env sb domain r = do
       subVar = "sub"
       flag = isaListNameFlag r
   results <- fmap concat $ forM (nonMetaProds r) $ \p ->
-    ppSubstProd env (SubstCtx sb domain flag (ruleName r) thisVar thatVar subVar p)
+    ppSubstProd env (SubstCtx sb domain flag (ruleName r) thisVar thatVar subVar p inVar)
   let deps = concat [d | (d, _, _) <- results]
       clauses = [c | (_, c, _) <- results]
       listFuncs = concat [f | (_, _, f) <- results]
@@ -618,6 +620,7 @@ ppSubstListBody env sc sie de bound els = do
         Isa -> pure (body, funcs)
         Hol -> pure ("(MAP (\\" <> pat <> ". " <> ppBody <> ") " <> cid <> ")", [])
         Coq
+          | optCoqExpandLists (envOpts env) -> pure (body, funcs)
           | length (splitParensCommas pat) == 1 -> pure ("(map (fun (" <> pat <> ":" <> de1CoqTypeOfPattern de1i <> ") => " <> ppBody <> ") " <> cid <> ")", [])
           | otherwise -> pure ("(map (fun (pat_:" <> de1CoqTypeOfPattern de1i <> ") => match pat_ with " <> pat <> " => " <> ppBody <> " end) " <> cid <> ")", [])
         Caml -> pure ("(List.map (fun " <> pat <> " -> " <> ppBody <> ") " <> cid <> ")", [])
@@ -636,7 +639,42 @@ makeAuxFuncsList env sc els commonLhs = do
       depId0 = substName (sbName sb) nm
   case envTarget env of
     Coq
-      | optCoqExpandLists (envOpts env) -> failP "-coq_expand_list_types true is not supported"
+      | optCoqExpandLists (envOpts env) -> do
+          let suf = "list_" <> nm
+              tyThis = ppNontermrootTy env (sbThis sb)
+              tyThat = ppNtOrMvRootTy env (sbThat sb)
+              inV = ppNonterm env (scIn sc)
+              header =
+                ( ident
+                    <> ( if sbMultiple sb
+                           then " (" <> scSub sc <> ":list (" <> tyThat <> "*" <> tyThis <> "))"
+                           else " (" <> ppNonterm env (scThis sc) <> ":" <> tyThis <> ")" <> " (" <> ppNtOrMv env (scThat sc) <> ":" <> tyThat <> ")"
+                       )
+                    <> " (" <> inV <> ":" <> suf <> ")"
+                , " {struct " <> inV <> "}"
+                , " : " <> suf <> " :=\n" <> "  match " <> inV <> " with\n"
+                )
+              args = splitParensStars (makeNameElements env True els)
+              freshArgs = if length args > 1 then [x <> T.pack (show i) | (i, x) <- zip [1 :: Int ..] args] else args
+              lp = T.unwords freshArgs
+              rp = nm <> "_tl"
+              calls = [(n `elem` scDomain sc, n, x) | (n, x) <- zip args freshArgs]
+              rhs = T.unwords [if inDom then "(" <> substName (sbName sb) n <> " " <> commonLhs <> " " <> x <> ")" else x | (inDom, n, x) <- calls]
+              rhsDeps = reverse [substName (sbName sb) n | (True, n, _) <- calls]
+          pure
+            ( ident
+            , [ IntFunc
+                  { rFunId = ident
+                  , rFunDep = ident : rhsDeps
+                  , rFunType = suf
+                  , rFunHeader = header
+                  , rFunClauses =
+                      [ ("", "Nil_" <> suf, "Nil_" <> suf)
+                      , ("", "Cons_" <> suf <> " " <> lp <> " " <> rp, "Cons_" <> suf <> " " <> rhs <> " (" <> ident <> " " <> commonLhs <> " " <> rp <> ")")
+                      ]
+                  }
+              ]
+            )
       | otherwise -> pure ("", [])
     Caml -> pure ("", [])
     _ -> do
@@ -870,7 +908,29 @@ ppFvListBody env fv domain rnn p sie de flag bound els = do
       Caml -> pure (Just ("(List.flatten (List.map (fun " <> pat <> " -> " <> T.intercalate (listAppend env) bodyElements <> ") " <> cid <> "))"), funcs)
       Lem -> pure (Just ("(List.concat (List.map (fun " <> pat <> " -> " <> T.intercalate " ++ " bodyElements <> ") " <> cid <> "))"), funcs)
       Coq
-        | optCoqExpandLists opts -> liftP (failP "-coq_expand_list_types true is not supported")
+        | optCoqExpandLists opts -> do
+            ds <- get
+            let varList = splitParensCommas pat
+                args = T.intercalate "_" [ppNtOrMvWithSie env (SiVar "" 0 : sie) x | (x, _) <- de1Ntmvsns de1i]
+                postName = makeNameElements env False els
+                suf = "list_" <> postName
+                idList = fvName' (fvName fv) postName <> "_list"
+                outputTyp = "list " <> ppNtOrMvRootTy env (fvThat fv)
+                header = (idList <> " (l:" <> suf <> ")", "", " : " <> outputTyp <> " :=\n" <> "  match l with\n")
+            pure
+              ( Just ("(" <> idList <> " " <> args <> "_list)")
+              , [ IntFunc
+                    { rFunId = idList
+                    , rFunDep = idList : ds
+                    , rFunType = suf
+                    , rFunHeader = header
+                    , rFunClauses =
+                        [ ("", "Nil_" <> suf, "nil")
+                        , ("", "Cons_" <> suf <> " " <> T.unwords varList <> " " <> args <> "_list_", "app " <> body <> " " <> "(" <> idList <> " " <> args <> "_list_)")
+                        ]
+                    }
+                ]
+              )
         | length (splitParensCommas pat) == 1 -> do
             ln <- liftP (psCoqLocallyNameless <$> get)
             pure (Just ("(" <> (if ln then "union_map" else "flat_map") <> " (fun (" <> pat <> ":" <> de1CoqTypeOfPattern de1i <> ") => " <> T.intercalate " ++ " bodyElements <> ") " <> cid <> ")"), funcs)

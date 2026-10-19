@@ -194,7 +194,25 @@ ppSubelement env nonFree sie de flag pu srl sru el eu = case (el, eu) of
       Caml -> pure (["(List.for_all (fun " <> pattern <> " -> " <> conj <> ") " <> cid <> ")"], deps, [])
       Lem -> pure ([" (List.all (fun " <> pattern <> " -> " <> conj <> ") " <> cid <> ")"], deps, [])
       Coq
-        | optCoqExpandLists (envOpts env) -> failP "-coq_expand_list_types true is not supported"
+        | optCoqExpandLists (envOpts env) -> do
+            let tyList = splitParensStars (de1CoqTypeOfPattern de1i)
+                varList = splitParensCommas pattern
+                suf = "list_" <> T.intercalate "_" tyList
+                postName = T.intercalate "_" [ppNtOrMvWithSie env (SiPunct "" : sie) (promoteNtmvr env r, s) | ((r, s), _) <- de1Ntmvsns de1i]
+                ident = ppIs srl postName <> "_list"
+                header = (ident <> " (l:" <> suf <> ")", "", " : Prop :=\n" <> "  match l with\n")
+                func =
+                  IntFunc
+                    { rFunId = ident
+                    , rFunDep = ident : deps
+                    , rFunType = suf
+                    , rFunHeader = header
+                    , rFunClauses =
+                        [ ("", "Nil_" <> suf, "True")
+                        , ("", "Cons_" <> suf <> " " <> T.unwords varList <> " " <> cid <> "_", conj <> " /\\ " <> "(" <> ident <> " " <> cid <> "_)")
+                        ]
+                    }
+            pure ([ident <> " " <> cid], ident : deps, [func])
         | length (splitParensCommas pattern) == 1 ->
             pure (["(forall_list (fun (" <> pattern <> ":" <> de1CoqTypeOfPattern de1i <> ") => " <> conj <> ") " <> cid <> ")"], deps, [])
         | otherwise ->
