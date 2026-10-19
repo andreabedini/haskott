@@ -66,7 +66,7 @@ import Haskott.Term.Requests (TermRequest (..), termRequests)
 import Haskott.Term.Splice (spliceTerms)
 import Haskott.Term.Symterm
 import Haskott.Term.Tree (termElements)
-import Haskott.Typst (documentQuotations)
+import Haskott.Tex (documentQuotations)
 
 -- | Replace the bytes from start to end.
 data Edit = Edit

@@ -28,7 +28,7 @@ import Haskott.Defns (processDefns)
 import Haskott.Term.Parse (ParsePolicy (..), makeTermParser, parseTerms)
 import Haskott.Term.Requests (TermRequest (..), termRequests)
 import Haskott.Term.Symterm (ppPlainSymterm)
-import Haskott.Typst (defaultTypstOptions, makeTypst, typstDocument)
+import Haskott.Tex (Dialect (..), defaultTexOptions, makeTex, texDocument)
 import Control.Exception (IOException, try)
 import qualified Data.Text.Encoding.Error as TEE
 import System.Directory (doesFileExist, getTemporaryDirectory, removeFile)
@@ -91,12 +91,15 @@ main = do
                         Just failure -> pure (Just failure)
                         Nothing
                           | firstDiffers -> do
-                              putStrLn (rel ++ ": note: an ambiguous term's first parse differs from Ott's; Typst output not compared")
+                              putStrLn (rel ++ ": note: an ambiguous term's first parse differs from Ott's; TeX and Typst output not compared")
                               pure Nothing
-                          | otherwise -> compareTypst ott rel file spec
+                          | otherwise -> do
+                              typ <- compareTex ott Typst rel file spec
+                              tex <- compareTex ott Latex rel file spec
+                              pure (combine [typ, tex])
                   _ -> pure Nothing
   let failures = [f | Just f <- results]
-  putStrLn (show (length entries) ++ " files compared with ott -showraw, -show_sort, -parse and Typst output, " ++ show (length failures) ++ " disagreements")
+  putStrLn (show (length entries) ++ " files compared with ott -showraw, -show_sort, -parse, TeX and Typst output, " ++ show (length failures) ++ " disagreements")
   mapM_ putStrLn failures
   unless (null failures) exitFailure
   where
@@ -109,35 +112,44 @@ dropVersionLine t = case T.lines t of
   (first : _) | "Ott version" `T.isPrefixOf` first -> T.drop (T.length first + 1) t
   _ -> t
 
--- | Compare the Typst output with Ott's, byte for byte. Ott is run on the
--- same path, so the header naming the sources agrees. When Ott fails to
--- produce output (it rejects some specifications only at output time),
--- the file is reported but not counted as a disagreement.
-compareTypst :: FilePath -> FilePath -> FilePath -> Spec -> IO (Maybe String)
-compareTypst ott rel file spec = do
+-- | Compare the output of a TeX dialect with Ott's, byte for byte. Ott is
+-- run on the same path, so the header naming the sources agrees. When Ott
+-- fails to produce output (it rejects some specifications only at output
+-- time), the file is reported but not counted as a disagreement.
+compareTex :: FilePath -> Dialect -> FilePath -> FilePath -> Spec -> IO (Maybe String)
+compareTex ott d rel file spec = do
   tmp <- getTemporaryDirectory
-  let out = tmp </> "haskott-differential.typ"
+  let (ext, what) = case d of
+        Latex -> ("tex", "TeX")
+        Typst -> ("typ", "Typst")
+      out = tmp </> ("haskott-differential." ++ ext)
   _ <- try (removeFile out) :: IO (Either IOException ())
   (code, _, err) <- readProcessWithExitCode ott ["-i", file, "-o", out] ""
   exists <- doesFileExist out
   if not exists
     then do
-      putStrLn (rel ++ ": note: ott produced no Typst output (" ++ show code ++ "): " ++ take 200 (lastLine err))
+      putStrLn (rel ++ ": note: ott produced no " ++ what ++ " output (" ++ show code ++ "): " ++ take 200 (lastLine err))
       pure Nothing
     else do
       theirs <- B.readFile out
-      let (env, _, _, processed, _) = makeTypst defaultTypstOptions False spec
-          mine = TE.encodeUtf8 (typstDocument env (T.pack file) processed)
+      let (env, _, _, processed, _) = makeTex (defaultTexOptions d) False spec
+          mine = TE.encodeUtf8 (texDocument env (T.pack file) processed)
       if mine == theirs
         then pure Nothing
         else do
           let diffAt = length (takeWhile id (B.zipWith (==) mine theirs))
               context bs = T.unpack (TE.decodeUtf8With TEE.lenientDecode (B.take 160 (B.drop (max 0 (diffAt - 60)) bs)))
-          pure (Just (rel ++ ": Typst output differs at byte " ++ show diffAt ++ "\n    haskott: " ++ show (context mine) ++ "\n    ott:     " ++ show (context theirs)))
+          pure (Just (rel ++ ": " ++ what ++ " output differs at byte " ++ show diffAt ++ "\n    haskott: " ++ show (context mine) ++ "\n    ott:     " ++ show (context theirs)))
   where
     lastLine s = case reverse (filter (not . null) (lines s)) of
       (l : _) -> l
       [] -> ""
+
+-- | The disagreements of several comparisons of one file, as one.
+combine :: [Maybe String] -> Maybe String
+combine rs = case [r | Just r <- rs] of
+  [] -> Nothing
+  failures -> Just (foldr1 (\a b -> a ++ "\n" ++ b) failures)
 
 -- | Ott accepts a file when, after the checks, every rule and clause
 -- parses; haskott must agree, processing the definitions as Ott does

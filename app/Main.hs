@@ -2,9 +2,10 @@
 
 -- | The command line.
 --
--- With Ott's options (@-i FILE@, @-o FILE.typ@, @-typst_filter SRC DST@,
+-- With Ott's options (@-i FILE@, @-o FILE.tex@, @-o FILE.typ@,
+-- @-tex_filter SRC DST@, @-typst_filter SRC DST@,
 -- @-picky_multiple_parses BOOL@, @-tex_name_prefix P@, ...) haskott runs
--- the whole pipeline and writes Typst output, so that it can stand in for
+-- the whole pipeline and writes the outputs, so that it can stand in for
 -- @ott@ in a Makefile. @lsp@ runs a language server over stdio. The
 -- development subcommands @check@, @dump@, @showraw@, @spec@ and @parse@
 -- look at one stage each.
@@ -30,7 +31,7 @@ import Haskott.Syntax
 import Haskott.Term.Parse
 import Haskott.Term.Splice (spliceTerms)
 import Haskott.Term.Symterm (ppPlainSymterm)
-import Haskott.Typst
+import Haskott.Tex
 import Server (serverMain)
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
@@ -97,7 +98,7 @@ main = do
         Right l -> mapM_ TIO.putStrLn (renameableRoots (ldSpec l))
     (('-' : _) : _) -> ottMain args
     _ -> do
-      hPutStrLn stderr "usage: haskott [-i FILE]... [-o FILE.typ]... [-typst_filter SRC DST]... [OPTION]...\n       haskott rename [--write] OLD NEW FILE...\n       haskott lsp\n       haskott check [--picky] FILE...\n       haskott dump [--terms] FILE\n       haskott showraw FILE\n       haskott spec FILE\n       haskott parse FILE \":root: text\""
+      hPutStrLn stderr "usage: haskott [-i FILE]... [-o FILE.tex|FILE.typ]... [-tex_filter SRC DST]... [-typst_filter SRC DST]... [OPTION]...\n       haskott rename [--write] OLD NEW FILE...\n       haskott lsp\n       haskott check [--picky] FILE...\n       haskott dump [--terms] FILE\n       haskott showraw FILE\n       haskott spec FILE\n       haskott parse FILE \":root: text\""
       exitFailure
 
 ------------------------------------------------------------------------
@@ -106,41 +107,50 @@ main = do
 data Options = Options
   { oInputs :: [FilePath]
   , oOutputs :: [FilePath]
-  , oFilters :: [(FilePath, FilePath)]
+  , oFilters :: [(Dialect, FilePath, FilePath)]
   , oPicky :: Bool
-  , oTypst :: TypstOptions
+  , oTex :: TexOptions
   }
 
 parseOptions :: [String] -> Either String Options
-parseOptions = go (Options [] [] [] False defaultTypstOptions)
+parseOptions = go (Options [] [] [] False (defaultTexOptions Latex))
   where
     go o args = case args of
       [] -> Right o {oInputs = reverse (oInputs o), oOutputs = reverse (oOutputs o), oFilters = reverse (oFilters o)}
       "-i" : f : rest -> go o {oInputs = f : oInputs o} rest
       "-o" : f : rest -> go o {oOutputs = f : oOutputs o} rest
-      "-typst_filter" : s : d : rest -> go o {oFilters = (s, d) : oFilters o} rest
+      "-tex_filter" : s : d : rest -> go o {oFilters = (Latex, s, d) : oFilters o} rest
+      "-typst_filter" : s : d : rest -> go o {oFilters = (Typst, s, d) : oFilters o} rest
       "-picky_multiple_parses" : b : rest -> bool b >>= \v -> go o {oPicky = v} rest
-      "-tex_name_prefix" : p : rest -> go (typst o (\t -> t {optPrefix = T.pack p})) rest
-      "-tex_show_meta" : b : rest -> bool b >>= \v -> go (typst o (\t -> t {optShowMeta = v})) rest
-      "-tex_show_categories" : b : rest -> bool b >>= \v -> go (typst o (\t -> t {optShowCategories = v})) rest
-      "-tex_colour" : b : rest -> bool b >>= \v -> go (typst o (\t -> t {optColour = v})) rest
-      "-tex_wrap" : b : rest -> bool b >>= \v -> go (typst o (\t -> t {optWrap = v})) rest
-      "-tex_suppress_category" : c : rest -> go (typst o (\t -> t {optSuppressedCategories = optSuppressedCategories t ++ [T.pack c]})) rest
-      "-tex_suppress_ntr" : n : rest -> go (typst o (\t -> t {optSuppressedNtrs = optSuppressedNtrs t ++ [T.pack n]})) rest
+      "-tex_name_prefix" : p : rest -> go (tex o (\t -> t {optPrefix = T.pack p})) rest
+      "-tex_show_meta" : b : rest -> bool b >>= \v -> go (tex o (\t -> t {optShowMeta = v})) rest
+      "-tex_show_categories" : b : rest -> bool b >>= \v -> go (tex o (\t -> t {optShowCategories = v})) rest
+      "-tex_colour" : b : rest -> bool b >>= \v -> go (tex o (\t -> t {optColour = v})) rest
+      "-tex_wrap" : b : rest -> bool b >>= \v -> go (tex o (\t -> t {optWrap = v})) rest
+      "-tex_suppress_category" : c : rest -> go (tex o (\t -> t {optSuppressedCategories = optSuppressedCategories t ++ [T.pack c]})) rest
+      "-tex_suppress_ntr" : n : rest -> go (tex o (\t -> t {optSuppressedNtrs = optSuppressedNtrs t ++ [T.pack n]})) rest
       f : rest | ".ott" `isSuffixOf` f -> go o {oInputs = f : oInputs o} rest
       opt : _ -> Left ("unknown option or argument " ++ show opt)
     bool b = case b of
       "true" -> Right True
       "false" -> Right False
       _ -> Left ("expected true or false, found " ++ show b)
-    typst o f = o {oTypst = f (oTypst o)}
+    tex o f = o {oTex = f (oTex o)}
+
+-- | The dialect an output file is written in, by its extension.
+outputDialect :: FilePath -> Maybe Dialect
+outputDialect f
+  | ".tex" `isSuffixOf` f = Just Latex
+  | ".typ" `isSuffixOf` f = Just Typst
+  | otherwise = Nothing
 
 ottMain :: [String] -> IO ()
 ottMain args = do
   opts <- either (\m -> hPutStrLn stderr m >> exitFailure) pure (parseOptions args)
   when (null (oInputs opts)) $ hPutStrLn stderr "no input files" >> exitFailure
-  forM_ (oOutputs opts) $ \o ->
-    unless (".typ" `isSuffixOf` o) $ hPutStrLn stderr ("only Typst output is implemented; cannot write " ++ o) >> exitFailure
+  outputs <- forM (oOutputs opts) $ \o -> case outputDialect o of
+    Just d -> pure (d, o)
+    Nothing -> hPutStrLn stderr ("only TeX and Typst output are implemented; cannot write " ++ o) >> exitFailure
   -- every file is parsed into its own tree and the raw documents are
   -- checked as one, as Ott does with several -i options
   sourcesText <- forM (oInputs opts) $ \f -> (,) f <$> readSource f
@@ -151,22 +161,24 @@ ottMain args = do
       files = ldSources loaded
       sources = T.pack (unwords (oInputs opts))
       report d = let (f, src, d') = locateDiagnostic files d in reportDiagnostic f src d'
-  let typstWanted = not (null (oOutputs opts)) || not (null (oFilters opts))
-      (env, policy0, tp0, processed0, diags0) = makeTypst (oTypst opts) (oPicky opts) spec
-      -- without a Typst target, several parses of a term are no error
-      (policy, processed, diags)
-        | typstWanted || oPicky opts = (policy0, processed0, diags0)
-        | otherwise = let (pr, ds) = processDefns (FirstIfSame []) tp0 spec in (FirstIfSame [], pr, ds)
+      tp = makeTermParser spec
+      envOf d = makeEnv (oTex opts) {optDialect = d} spec (quotationParser policy tp)
+      -- several parses of a term are no error when every target that
+      -- compares them (Ott's TeX, not its Typst) prints them the same
+      policy
+        | oPicky opts = Picky
+        | otherwise = FirstIfSame [renderSymterm (envOf Latex) | Latex `elem` map fst outputs]
+      (processed, diags) = processDefns policy tp spec
       -- stage two on every tree, for its warnings about quotations
-      warnings = concat [map (shiftDiag (srcBase s)) ws | s <- files, let (_, _, ws) = spliceTerms policy tp0 (srcTree s)]
+      warnings = concat [map (shiftDiag (srcBase s)) ws | s <- files, let (_, _, ws) = spliceTerms policy tp (srcTree s)]
   mapM_ report diags
   mapM_ (\d -> report d {diagMessage = "warning: " <> diagMessage d}) warnings
-  forM_ (oOutputs opts) $ \o -> writeText o (typstDocument env sources processed)
-  forM_ (oFilters opts) $ \(s, d) -> do
+  forM_ outputs $ \(d, o) -> writeText o (texDocument (envOf d) sources processed)
+  forM_ (oFilters opts) $ \(d, s, dst) -> do
     src <- readSource s
-    case filterDocument env src of
+    case filterDocument (envOf d) src of
       Left m -> hPutStrLn stderr (s ++ ": " ++ T.unpack m) >> exitFailure
-      Right out -> writeText d out
+      Right out -> writeText dst out
   let counts = countsString processed
   unless (T.null counts) (TIO.putStr counts)
   unless (null diags) exitFailure

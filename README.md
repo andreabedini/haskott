@@ -65,8 +65,8 @@ not about.
   byte for byte. The corpus suite checks that round trip on every file
   that checks. Lines that do not parse stay lines; a term with several
   parses is spliced with the first unless `--picky`.
-- Milestone 6, Typst output: `Haskott.Typst` is the fork's Typst dialect of
-  Ott's TeX back end, from the runtime of defaults through the metavariable
+- Milestone 6, Typst output: `Haskott.Tex` in its Typst dialect, the
+  fork's Typst dialect of Ott's TeX back end, from the runtime of defaults through the metavariable
   and grammar tables, the symbolic terms of rules with Ott's spacing,
   homs, suffixes, dot forms and comprehensions, the definition and
   function blocks, the `[[ ]]` document filter and the final counts. On
@@ -154,11 +154,21 @@ not about.
     classified.
 
   `cabal test lsp` drives the server through a client.
-- Not yet done: TeX output, Ott's remaining checks (bounds consistency at
-  output time among them), prover back ends.
+- Milestone 10, TeX output: `Haskott.Tex` in its LaTeX dialect, Ott's
+  TeX back end, with the preamble of default commands, `tex-preamble`,
+  `tex-wrap-pre` and `tex-wrap-post` embeds, and `-tex_filter`. As in
+  Ott, the two dialects share the structure of the output and differ in
+  its leaves, and the term parses of a LaTeX target must print the same
+  to be taken without `-picky_multiple_parses`. The differential
+  compares the TeX output of every corpus file, byte for byte; it also
+  agrees on the report's specifications and filtered document.
+- Not yet done: Ott's remaining checks (bounds consistency at output time
+  among them), `-merge true` (merging the rules of the same name in
+  several files), prover back ends.
 
 haskott takes Ott's command line for the implemented part: `haskott -i
-FILE... -o OUT.typ [-typst_filter SRC DST] [-picky_multiple_parses BOOL]
+FILE... -o OUT.tex|OUT.typ [-tex_filter SRC DST] [-typst_filter SRC DST]
+[-picky_multiple_parses BOOL]
 [-tex_name_prefix P] [-tex_show_meta BOOL] [-tex_show_categories BOOL]
 [-tex_colour BOOL] [-tex_wrap BOOL] [-tex_suppress_category C]
 [-tex_suppress_ntr N]`. The development subcommands look at one stage
