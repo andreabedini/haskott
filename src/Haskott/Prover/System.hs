@@ -327,8 +327,8 @@ proverOutputs prepared job vertex0 = do
       structure0 = collapsedStructure (pjInputs job) (structureOf (pjSpec job) (prAuxfnTypes prepared))
   (spec, processed, deps, structure) <- case t of
     Coq
-      | optCoqAvoid opts == 1 ->
-          let (s, p) = avoidPrimaries (pjSpec job) (pjProcessed job) in Right (s, p, deps0, structure0)
+      | optCoqAvoid opts `elem` [1, 2] ->
+          let (s, p) = avoidPrimaries (optCoqAvoid opts == 2) (pjSpec job) (pjProcessed job) in Right (s, p, deps0, structure0)
       | optCoqAvoid opts == 0 -> Right (pjSpec job, pjProcessed job, deps0, structure0)
       | otherwise -> Left "coq type-name avoidance must be in {0,1,2}"
     Caml -> case camlRename (pjSpec job) (pjProcessed job) of

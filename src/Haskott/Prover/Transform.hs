@@ -188,20 +188,37 @@ symtermsMvs = concatMap st
       StliSingle es -> concatMap ste es
       StliListform _ es -> concatMap ste es
 
--- | Ott's @avoid_primaries_systemdefn false@.
-avoidPrimaries :: Spec -> Processed -> (Spec, Processed)
-avoidPrimaries spec processed =
-  let prod p =
-        let m = avoid spec (elementsMvs (prodElements p)) (elementsNts (prodElements p))
+-- | Ott's @secondaryify@: every metavariable and nonterminal renamed to
+-- a fresh one with the secondary root of its declaration (its second
+-- name, if it has one).
+secondaryify :: Spec -> [(Text, Suffix)] -> [(Text, Suffix)] -> Renaming
+secondaryify spec mvs0 nts0 =
+  let secondaryMvr mvr = case [map fst (mvdNames md) | md <- specMetavars spec, mvr `elem` map fst (mvdNames md)] of
+        ((_ : q : _) : _) -> q
+        _ -> mvr
+      secondaryNtr ntr = case [map fst (ruleNames r) | r <- specRules spec, ntr `elem` map fst (ruleNames r)] of
+        ((_ : q : _) : _) -> q
+        _ -> ntr
+      build secondary = foldl (\acc x@(r, suff) -> let r' = secondary r in (x, (r', freshSuffix [s | (_, (r'', s)) <- acc, r'' == r'] suff)) : acc) []
+   in Renaming M.empty (Just (build secondaryMvr (removeDuplicates mvs0))) M.empty (Just (build secondaryNtr (removeDuplicates nts0))) M.empty
+
+-- | Ott's @avoid_primaries_systemdefn@: with a fresh suffix for the
+-- unsuffixed primaries (@-coq_avoid 1@), or secondary names for all
+-- (@-coq_avoid 2@).
+avoidPrimaries :: Bool -> Spec -> Processed -> (Spec, Processed)
+avoidPrimaries secondary spec processed =
+  let avoid' = if secondary then secondaryify spec else avoid spec
+      prod p =
+        let m = avoid' (elementsMvs (prodElements p)) (elementsNts (prodElements p))
          in p {prodElements = map (elementR m) (prodElements p), prodBindspecs = map (bindspecR m) (prodBindspecs p)}
       spec' = spec {specRules = [r {ruleProds = map prod (ruleProds r)} | r <- specRules spec]}
       drule dr =
         let sts = druleConclusion dr : map snd (drulePremises dr)
-            m = avoid spec (symtermsMvs sts) (symtermsNts sts)
+            m = avoid' (symtermsMvs sts) (symtermsNts sts)
          in dr {drulePremises = [(hn, symtermR m st) | (hn, st) <- drulePremises dr], druleConclusion = symtermR m (druleConclusion dr)}
       clause fc =
         let sts = [fcLhs fc, fcRhs fc]
-            m = avoid spec (symtermsMvs sts) (symtermsNts sts)
+            m = avoid' (symtermsMvs sts) (symtermsNts sts)
          in fc {fcLhs = symtermR m (fcLhs fc), fcRhs = symtermR m (fcRhs fc)}
       item it = case it of
         PReln pc -> PReln pc {pcDefns = [d {pdRules = map rule (pdRules d)} | d <- pcDefns pc]}
