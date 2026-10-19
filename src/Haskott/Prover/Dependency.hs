@@ -332,10 +332,13 @@ printFuncs env (sorting, refl) = case envTarget env of
             <> ( if optIsaGenerateLemmas opts
                    then
                      "lemma\n" <> T.concat [c | (_, (_, _, FooterIsaProjLemma _ c _)) <- block]
-                       <> "  by(simp_all add: " <> T.unwords [i | (_, (_, _, FooterIsaProjLemma _ _ i)) <- block] <> ")\n\n"
+                       <> "  by(simp_all add: " <> T.unwords [defsOf f | (_, (_, _, f)) <- block] <> ")\n\n"
                    else ""
                )
       | otherwise = ""
+    defsOf f = case f of
+      FooterIsaProjLemma _ _ i -> i
+      _ -> ""
     isProj f = case f of
       FooterIsaProjLemma {} -> True
       _ -> False

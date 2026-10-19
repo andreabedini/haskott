@@ -102,7 +102,7 @@ defaultProverOptions =
     , optIsaPrimrec = True
     , optIsaInductive = True
     , optIsaSyntax = False
-    , optIsaGenerateLemmas = False
+    , optIsaGenerateLemmas = True
     , optCamlIncludeTerminals = False
     , optNoRbcatn = True
     }
@@ -200,6 +200,9 @@ data Env = Env
   -- over and its result type
   , envQuotation :: Text -> Symterm
   -- ^ the parser of the @[[ ]]@ quotations of embeds
+  , envParse :: Text -> Text -> [Symterm]
+  -- ^ every parse of a text as a term of a root, in order (none unless
+  -- set: the printers of context rules need it)
   }
 
 makeEnv :: Target -> ProverOptions -> Deps -> [(Text, ([Text], RootRef))] -> (Text -> Symterm) -> Spec -> Env
@@ -219,6 +222,7 @@ makeEnv t opts deps axs quotation spec =
     , envPromotion = M.fromList [(lower, (top, M.fromList pps)) | (lower, (top, pps)) <- srdPromotion (specSubruleData spec)]
     , envAuxfnTypes = axs
     , envQuotation = quotation
+    , envParse = \_ _ -> []
     }
 
 isCoq, isIsa, isHol, isLem, isCaml :: Env -> Bool

@@ -217,6 +217,7 @@ ottMain args = do
             , pjProcessed = processed
             , pjInputs = inputs
             , pjQuotation = quotationParser policy tp
+            , pjParse = \root txt -> parseTerms tp root False txt
             , pjOutputs = outputsOf t (oFileArgs opts)
             }
         run vertex t = case proverOutputs prepared (job t) vertex of

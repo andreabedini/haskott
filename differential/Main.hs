@@ -34,7 +34,7 @@ import Haskott.Term.Grammar (nonterminalCount)
 import Haskott.Term.Parse (termGrammar)
 import Control.Exception (IOException, try)
 import qualified Data.Text.Encoding.Error as TEE
-import System.Directory (doesFileExist, getTemporaryDirectory, removeFile)
+import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile)
 import Data.List (isInfixOf, nub, sort)
 import System.Environment (getArgs, lookupEnv)
 import System.Exit (ExitCode (..), exitFailure)
@@ -124,7 +124,8 @@ dropVersionLine t = case T.lines t of
 -- time), the file is reported but not counted as a disagreement.
 compareTex :: FilePath -> Dialect -> FilePath -> FilePath -> Spec -> IO (Maybe String)
 compareTex ott d rel file spec = do
-  tmp <- getTemporaryDirectory
+  let tmp = "dist-newstyle" </> "differential-tmp"
+  createDirectoryIfMissing True tmp
   let (ext, what) = case d of
         Latex -> ("tex", "TeX")
         Typst -> ("typ", "Typst")
@@ -156,7 +157,8 @@ compareTex ott d rel file spec = do
 -- the two accept the file for the target.
 compareProver :: FilePath -> Target -> FilePath -> FilePath -> T.Text -> Spec -> IO (Maybe String)
 compareProver ott t rel file src spec = do
-  tmp <- getTemporaryDirectory
+  let tmp = "dist-newstyle" </> "differential-tmp"
+  createDirectoryIfMissing True tmp
   let out = tmp </> ("haskottdiff" ++ ext)
       ext = case t of
         Coq -> ".v"
@@ -182,6 +184,7 @@ compareProver ott t rel file src spec = do
                 , pjProcessed = processed
                 , pjInputs = [Input file src 0]
                 , pjQuotation = quotationParser policy tp
+                , pjParse = \root txt -> parseTerms tp root False txt
                 , pjOutputs = [(out, [file])]
                 }
         (files, _) <- proverOutputs prepared job (prVertex prepared)

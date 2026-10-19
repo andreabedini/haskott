@@ -297,6 +297,8 @@ data ProverJob = ProverJob
   , pjQuotation :: Text -> Symterm
   , pjOutputs :: [(FilePath, [FilePath])]
   -- ^ each output file with its input files, in Ott's order
+  , pjParse :: Text -> Text -> [Symterm]
+  -- ^ every parse of a text as a term of a root, in order
   }
 
 -- | The file name Ott names the theory by: without @.thy@ or
@@ -325,7 +327,7 @@ proverOutputs prepared job vertex0 = do
       Left d -> Left (diagMessage d <> "\n")
       Right (s, p, mvr, ntr) -> Right (s, p, renameDeps mvr ntr deps0, [(f, renameEntry mvr ntr e) | (f, e) <- structure0])
     _ -> Right (pjSpec job, pjProcessed job, deps0, structure0)
-  let env = makeEnv t opts deps (prAuxfnTypes prepared) (pjQuotation job) spec
+  let env = (makeEnv t opts deps (prAuxfnTypes prepared) (pjQuotation job) spec) {envParse = pjParse job}
       single = case pjOutputs job of
         [(_, [_])] -> True
         _ -> False
