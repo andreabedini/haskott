@@ -4,10 +4,10 @@ A Haskell reimplementation of [Ott](https://github.com/ott-lang/ott), the tool
 for writing semantic definitions of programming languages (Sewell et al.,
 "Ott: Effective tool support for the working semanticist", JFP 20(1), 2010).
 
-It takes the Ott input syntax exactly as the
-[andreabedini/ott](https://github.com/andreabedini/ott) fork accepts it
-(including its Typst backend, quoted terminals and nested dot forms), checks a
-definition as Ott does, and writes what Ott writes: TeX and Typst output, the
+It takes the input syntax of Ott 0.34 together with `typst` homs and
+embeds, quoted terminals in productions (`'in'`, `'::'`) and nested dot
+forms, as specified in `GRAMMAR.md`; checks a definition as Ott does; and
+writes what Ott writes: TeX and Typst output, the
 `[[ ... ]]` document filters, and the definitions for Coq, Isabelle, HOL,
 Lem, OCaml and Twelf. The driving use is the formalisation of the Haskell
 2010 revised report in the `formalisation` directory of
@@ -66,14 +66,14 @@ not about.
   byte for byte. The corpus suite checks that round trip on every file
   that checks. Lines that do not parse stay lines; a term with several
   parses is spliced with the first unless `--picky`.
-- Milestone 6, Typst output: `Haskott.Tex` in its Typst dialect, the
-  fork's Typst dialect of Ott's TeX back end, from the runtime of defaults
+- Milestone 6, Typst output: `Haskott.Tex` in its Typst dialect, a Typst
+  dialect of Ott's TeX back end, from the runtime of defaults
   through the metavariable and grammar tables, the symbolic terms of rules
   with Ott's spacing, homs, suffixes, dot forms and comprehensions, the
   definition and function blocks, the `[[ ]]` document filter and the
   final counts. On the report (`ott/style.ott` with `expressions.ott` and
   with `layout.ott`, plus the filtered `report.src.typ`) the output is
-  byte for byte the fork's, and `make OTT=haskott` builds the report's
+  byte for byte Ott's, and `make OTT=haskott` builds the report's
   PDFs. The differential also compares the Typst output of every corpus
   file.
 - Milestone 7, rename: `haskott rename [--write] OLD NEW FILE...` renames
@@ -234,8 +234,7 @@ $ cabal build all
 $ cabal test
 ```
 
-The test suite reads the acceptance corpus from checkouts of
-[ott](https://github.com/andreabedini/ott) (the `typst` work) and the
+The test suite reads the acceptance corpus from checkouts of Ott and the
 report's formalisation, at `../ott` and
 `../haskell-2010-revised-report/formalisation` by default; `HASKOTT_OTT` and
 `HASKOTT_REPORT_OTT` name them when they are elsewhere. What Ott does with
