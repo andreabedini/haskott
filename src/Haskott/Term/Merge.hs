@@ -1,9 +1,9 @@
 -- | Anti-unification of symbolic terms, behind dot forms in terms:
 -- @e1 : t1 , .. , en : tn@ is accepted when the two sides merge into one
 -- body @e[0] : t[0]@ with a single varying pair of suffix items, the bound
--- @1..n@. Ott's @merge.ml@ for symterms, including the fork's shifted
--- indices (@e_1 = f e_0 .. e_n = f e_n-1@, where the pairs @(0,n-1)@ are
--- the canonical pair @(1,n)@ shifted by one).
+-- @1..n@. Ott's @merge.ml@ for symterms, including shifted indices
+-- (@e_1 = f e_0 .. e_n = f e_n-1@, where the pairs @(0,n-1)@ are the
+-- canonical pair @(1,n)@ shifted by one; see 'SiIndexShift').
 module Haskott.Term.Merge
   ( mergeSteListShifts
   , abstractIndexvarSte

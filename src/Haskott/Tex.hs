@@ -1,16 +1,17 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | The TeX back end, in Ott's two dialects: LaTeX, and Typst as the
--- andreabedini/ott fork prints it (@grammar_pp.ml@, @defns.ml@,
--- @system_pp.ml@, @embed_pp.ml@). The two share the structure of the
--- output and differ in its leaves. The LaTeX output defines one command
--- per rule, definition and definition rule, after a preamble of default
--- commands that @tex-preamble@ embeds may redefine; the Typst output
--- defines one function per rule, definition and definition rule, after a
--- runtime of defaults that @typst-preamble@ embeds may shadow.
+-- | The TeX back end, in Ott's two dialects, LaTeX and Typst
+-- (@grammar_pp.ml@, @defns.ml@, @system_pp.ml@, @embed_pp.ml@). The two
+-- share the structure of the output and differ in its leaves. The LaTeX
+-- output defines one command per rule, definition and definition rule,
+-- after a preamble of default commands that @tex-preamble@ embeds may
+-- redefine; the Typst output defines one function per rule, definition
+-- and definition rule, after a runtime of defaults that @typst-preamble@
+-- embeds may shadow.
 --
--- Not implemented: Ott's bound extraction, which checks at output time
--- that the dot forms of a rule are consistent.
+-- Ott checks the bounds of dot forms while it prints, and stops at
+-- inconsistent ones; here the driver makes those checks before printing
+-- ('Haskott.Prover.Bounds.boundsConsistency').
 module Haskott.Tex
   ( Dialect (..)
   , TexOptions (..)
