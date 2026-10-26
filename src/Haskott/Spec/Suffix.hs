@@ -38,8 +38,13 @@ data SuffixItem
   | SiIndex Int
   -- ^ a de Bruijn index to the enclosing list form
   | SiIndexed Text SuffixItem
-  -- ^ the fork's nested dot forms: an index variable with a subscript
+  -- ^ an index variable with a subscript, as the upper bound @k1@ of the
+  -- inner list of the nested dot form
+  -- @p_1_1 .. p_1_k1 ; .. ; p_n_1 .. p_n_kn@
   | SiIndexShift Int Int
+  -- ^ a de Bruijn index shifted by a constant, as @e_n-1@ in the dot form
+  -- @e_1 = f e_0 x_1 .. e_n = f e_n-1 x_n@, where @e_0 .. e_n-1@ is
+  -- @e_[0]-1@ against the bound @1..n@ ("Haskott.Term.Merge")
   deriving (Eq, Ord, Show)
 
 type Suffix = [SuffixItem]

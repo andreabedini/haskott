@@ -3,7 +3,7 @@
 --
 -- @test/ott-acceptance.tsv@ records, for every @.ott@ file in Ott's
 -- @tests/@ and @examples/@ directories and for the Haskell report's
--- @expressions.ott@, what Ott 0.34 (fork) did with it: @accepted@,
+-- @expressions.ott@, what Ott 0.34 did with it: @accepted@,
 -- @other-error@ (parsed, then failed later), or @parse-error@. It is
 -- produced by @scripts/ott-acceptance.zsh@. This suite checks that haskott
 -- parses exactly the files Ott parses, and that rendering a parsed file
