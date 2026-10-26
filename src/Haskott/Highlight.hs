@@ -41,7 +41,7 @@ import Haskott.Syntax.Ast (identValue)
 import Haskott.Syntax.Kind (Kind (..), isTrivia)
 
 data Class
-  = -- * Identifiers the grammar of the file decides
+  = -- Identifiers the grammar of the file decides
     Terminal
     -- ^ a terminal whose spelling starts with a letter or digit
   | Operator
@@ -58,7 +58,8 @@ data Class
     -- ^ dots and the delimiters of comprehensions
   | Label
     -- ^ the name of a premise, @[[:name]]@
-    -- * Names by their place
+
+    -- Names by their place
   | Production
     -- ^ a production name
   | Definition
@@ -71,7 +72,8 @@ data Class
   | Group
     -- ^ a prefix, the name of a group of definitions or functions, or of
     -- a Coq section
-    -- * The metalanguage
+
+    -- The metalanguage
   | MetaKeyword
   | Punctuation
   | Comment

@@ -311,7 +311,8 @@ insertSpacing env es = case es of
 ------------------------------------------------------------------------
 -- Homs
 
--- | A hom with its references already resolved to strings.
+-- | A hom with its references already resolved to strings; a reference
+-- past them prints as @UNIMPLEMENTED@, as in Ott.
 applyHomSpec :: Env -> [HomEl] -> [Text] -> [Text]
 applyHomSpec env hs ss = map el hs
   where
@@ -354,6 +355,7 @@ ppComEs env homs es = case comHom homs of
       Nonterm _ n suff -> Just (ppNonterm env [] (n, suff))
       Metavar _ m suff -> Just (ppMetavar env [] (m, suff))
       Terminal _ -> Nothing
+      -- Ott's own placeholder for a list form in a comment hom
       ListForm _ -> Just "pp element refactoring in progress"
 
 ppComStrings :: Env -> [Hom] -> [Text] -> Text
@@ -480,6 +482,8 @@ ppSuffixItem env sie nosub si
   where
     sub = if nosub then "" else "_"
 
+-- | The item a de Bruijn index stands for; Ott prints @999@ for an index
+-- with no enclosing list form.
 nthSie :: Suffix -> Int -> SuffixItem
 nthSie sie i = if i >= 0 && i < length sie then sie !! i else SiNum "999"
 
@@ -1005,9 +1009,11 @@ ppDefnss env processed
 ------------------------------------------------------------------------
 -- Embeds and quotations
 
--- | The quotations of an embed are terms of user syntax. A quotation that
--- does not parse is reported through the parser's policy and printed as
--- uninterpreted, as Ott does.
+-- | The quotations of an embed are terms of user syntax, read by the
+-- driver's quotation parser; one that does not parse, or whose parses the
+-- policy does not resolve, prints as uninterpreted, as in Ott. As in Ott,
+-- the quotation @[[TEX_NAME_PREFIX]]@ is the command prefix, and a Typst
+-- quotation is trimmed.
 ppEmbedSpec :: Env -> [EmbedEl] -> Text
 ppEmbedSpec env = T.concat . map el
   where

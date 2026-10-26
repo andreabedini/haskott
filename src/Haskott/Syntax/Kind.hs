@@ -13,7 +13,7 @@ module Haskott.Syntax.Kind
 import Data.Text (Text)
 
 data Kind
-  = -- * Trivia (GRAMMAR.md §7)
+  = -- Trivia (GRAMMAR.md §7)
     Space
     -- ^ a run of non-newline whitespace: space, tab, form feed
   | Newline
@@ -23,7 +23,7 @@ data Kind
   | BlockComment
     -- ^ from @>>@ to its matching @<<@, nesting included
 
-    -- * Tokens of the @metalang@ and @bindspec@ modes (§2.4, §2.8)
+    -- Tokens of the @metalang@ and @bindspec@ modes (§2.4, §2.8)
   | Keyword
     -- ^ a reserved word; the token text is the spelling
   | Ident
@@ -57,7 +57,7 @@ data Kind
   | Empty
     -- ^ @{}@
 
-    -- * Tokens of the @elements@ and @comp_bound@ modes (§2.5, §2.7)
+    -- Tokens of the @elements@ and @comp_bound@ modes (§2.5, §2.7)
   | Element
     -- ^ a whitespace-delimited string in a production or judgement form
   | QuotedElement
@@ -74,7 +74,7 @@ data Kind
   | CompIn
     -- ^ @IN@
 
-    -- * Tokens of the @hom@ modes (§2.6)
+    -- Tokens of the @hom@ modes (§2.6)
   | HomText
     -- ^ a run of hom body text between blanks, brackets, braces and dots
   | RefOpen
@@ -82,14 +82,14 @@ data Kind
   | RefClose
     -- ^ @]]@
 
-    -- * Tokens of the @defnlang@ mode (§2.9)
+    -- Tokens of the @defnlang@ mode (§2.9)
   | Line
     -- ^ a rule premise, conclusion, formula or function clause, as
     -- written, without its terminator and without its indentation
   | Dashes
     -- ^ the run of @-@ that starts a rule-name line
 
-    -- * Tokens of symbolic terms (stage two, §5)
+    -- Tokens of symbolic terms (stage two, §5)
   | TTerminal
     -- ^ a terminal of the user's grammar, or a disambiguation delimiter
   | TNonterm
@@ -107,11 +107,12 @@ data Kind
   | PremiseLabel
     -- ^ the @:name@ of a named premise
 
-    -- * Error recovery
+    -- Error recovery
   | Garbage
     -- ^ text skipped after a parse error, up to where parsing resumed
 
-    -- * Nodes (§3, §4)
+    -- Nodes (§3, §4). Every token kind is declared above: 'isTokenKind'
+    -- relies on the order.
   | Document
   | MetavarDecl
     -- ^ @metavar@ or @indexvar@ declaration
@@ -165,7 +166,7 @@ data Kind
   | CoqSection
   | CoqVariable
 
-    -- * Nodes of symbolic terms (stage two)
+    -- Nodes of symbolic terms (stage two)
   | TNode Text Text
     -- ^ a production of the user's grammar: the rule's primary root and
     -- the production's name
@@ -192,6 +193,6 @@ isTrivia k = case k of
   BlockComment -> True
   _ -> False
 
--- | Kinds that occur only on tokens.
+-- | Kinds that occur only on tokens: those declared before 'Document'.
 isTokenKind :: Kind -> Bool
 isTokenKind k = k < Document || k == PremiseLabel

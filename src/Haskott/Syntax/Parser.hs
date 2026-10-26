@@ -1297,7 +1297,8 @@ data LineUnit
   -- annotation; followed by a newline unit if there is one
   | LUText [Elem] Elem (Maybe Text)
   -- ^ indentation, the 'Line' token, and the keyword if the first word is
-  -- one (the unit then ends the body and is not consumed)
+  -- one; such a unit is not consumed, and the caller ends the body at it
+  -- or, for @{{com@ and @{{ com@, parses a comment block
   | LUEof
 
 -- | Classify and consume the line at the current position. Keyword lines
@@ -1334,6 +1335,10 @@ lineUnit = do
             bc <- blockComment (T.drop (T.length ind) r)
             pure (LUBlock (i ++ [bc]))
         | "----" `T.isPrefixOf` body -> do
+            -- Ott's rule wants at least one character after the dashes,
+            -- and ocamllex backtracks to find it: a line of dashes alone
+            -- gives its last dash to the annotation (which then fails to
+            -- parse), and a line of exactly four dashes is a 'Line'.
             let dashRun = T.length (T.takeWhile (== '-') body)
                 dashes
                   | dashRun == T.length body = dashRun - 1

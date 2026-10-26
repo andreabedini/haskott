@@ -421,8 +421,9 @@ involvesRoot ctx w = case renameLexed ctx Nothing w of
 
 -- | The identifiers a hom reference under a node can resolve to: the
 -- elements of a production, judgement form or function, or the names of
--- a declaration, outside its homs (no such node is inside a hom, so
--- looking up from its tokens past it finds none).
+-- a declaration, outside its homs. The hom test looks at all of a
+-- token's ancestors, above the node too; that is harmless, since none of
+-- these nodes is itself inside a hom.
 ownerIdents :: C -> Set.Set Text
 ownerIdents c =
   Set.fromList
