@@ -15,10 +15,13 @@
 -- 'checkDocument' reports that one; 'checkDocumentRecovering' all of them,
 -- with the partial specification when the early steps succeeded.
 --
--- Not implemented from Ott's step 10: the matching of each production of
--- a subrule against the productions of its upper rule, context-rule
--- checks, productivity, the auxiliary-function typing, and the dependency
--- analysis.
+-- Not implemented from Ott's step 10: the context-rule checks and
+-- productivity. The typing of auxiliary functions is made only for a
+-- prover target ('Haskott.Prover.System'), and the dependency analysis
+-- (Ott's step 12) per target, in "Haskott.Prover.Dependency".
+--
+-- The numbered comments below (@-- 2:@, @-- 3d:@, ...) are the steps of
+-- Ott's function, numbered as in its source.
 module Haskott.Spec.Check
   ( checkDocument
   , checkDocumentRecovering

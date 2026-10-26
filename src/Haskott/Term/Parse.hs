@@ -65,8 +65,9 @@ parseComplete tp ntr concrete s
   where
     s' = stripTrailingWhitespace s
 
--- | Ott's message for a term with no parses: the text split at the
--- furthest position the parser reached, counted in bytes.
+-- | Ott's message for a term with no parses: the text split after the
+-- character the parser failed on, with that position printed in bytes,
+-- as Ott's byte-level parser counts it.
 noParsesErrorString :: TermParser -> Text -> Bool -> Text -> Text
 noParsesErrorString tp ntr concrete s =
   let s' = stripTrailingWhitespace s

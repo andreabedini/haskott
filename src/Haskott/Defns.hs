@@ -6,7 +6,8 @@
 -- being defined; premises may be named (@[[:name]]@) or be embedded prover
 -- code with quoted terms; lineless blocks become rules without premises;
 -- function clauses split into a left-hand side and a right-hand side.
--- Every problem is a diagnostic and processing continues, as in Ott.
+-- Every problem is a diagnostic and processing goes on;
+-- 'isFatalDiagnostic' tells the ones at which Ott itself stops.
 module Haskott.Defns
   ( Drule (..)
   , RuleItem (..)

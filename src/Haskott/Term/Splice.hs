@@ -150,8 +150,8 @@ spliceTerms policy tp doc =
             keep c
       _ -> keep c
 
-    -- the elements of a term, if it has exactly one parse (or, when not
-    -- picky, at least one); leading whitespace of the text stays in front
+    -- the elements of a term, if the policy selects one of its parses;
+    -- leading whitespace of the text stays in front
     parseLine :: Text -> Transform -> Text -> S (Maybe [GreenElement Kind])
     parseLine root transform s = do
       let key = (root, stripTrailingWhitespace s)

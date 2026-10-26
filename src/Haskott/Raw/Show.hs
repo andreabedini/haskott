@@ -175,6 +175,8 @@ fundefn f =
   "fun\n"
     <> T.intercalate " " (map element (fdElements f))
     <> " :: " <> fdResult f
+    -- the placeholder Ott's parser leaves in raw_fd_pn_wrapper for the
+    -- checker to fill, which -showraw prints
     <> " // dummy, to be replaced by grammar_typecheck "
     <> " :: " <> fdName f <> " "
     <> homs (fdHoms f)
