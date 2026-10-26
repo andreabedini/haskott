@@ -107,6 +107,8 @@ computeDependencies spec m counter0 =
       ts = G.topologicalFold dump sg []
       closure = G.transitiveSuccs g
       vs = G.vertices g
+      -- G.succ order (decreasing tags) on the closure and on g; the
+      -- reversals are Ott's consing onto a ref
       depGr = reverse [(back (classOf v), [back (classOf w) | w <- reverse vs', IS.member (G.vTag w) (closure M.! v)]) | v <- vs, let vs' = sortTags vs]
       depNon = reverse [(back (classOf v), [back (classOf w) | w <- G.succsDecreasing g v]) | v <- vs]
       sortTags = map snd . M.toList . M.fromList . map (\v -> (G.vTag v, v))

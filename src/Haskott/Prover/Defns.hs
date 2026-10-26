@@ -30,7 +30,8 @@ import Haskott.Term.Symterm
 
 -- | Ott's @non_free_ntrs@: the primary roots with non-free definitions,
 -- those on the left of a subrule and those whose productions mention
--- one, each with the root of the free type it is carved out of.
+-- one, each with the root of the free type it is carved out of. Like
+-- Ott's, the closure stops after two steps.
 nonFreeNtrs :: Env -> [Subrule] -> [(Text, Text)]
 nonFreeNtrs env srs =
   let spec = envSpec env
@@ -38,6 +39,7 @@ nonFreeNtrs env srs =
       mentions = [(ruleName r, primaryNtrsUsedInRule spec Nothing False r) | r <- rs]
       f xs = Set.union xs (Set.fromList [n | (n, ns) <- mentions, not (Set.null (Set.intersection xs ns))])
       ntrs0 = Set.fromList (map srLower srs)
+      -- not a fixed point: Ott's applies f at most twice
       fixedpoint g x = let x' = g x in if x == x' then x' else g x'
       others = Set.toList (Set.difference (fixedpoint f ntrs0) ntrs0)
    in [(srLower sr, srTop sr) | sr <- srs] ++ [(x, x) | x <- others]
@@ -163,6 +165,8 @@ ppDruleBody env dr = do
       modify (\st -> st {psCoqNonLocalHypDefn = "", psCoqNonLocalHypDefnVars = []})
       let vtl = [(x, Just t) | (x, _, (t, _)) <- quantified] ++ nlhv
           vtlr = if expand then removeDupl vtl else removeDuplicates vtl
+          -- the locally nameless (L:vars) quantifications first, as Ott
+          -- puts them
           (t1, t2) = partition (\(_, t) -> t == Just "vars") vtlr
           qpavt = collapseQuantifications (t1 ++ t2)
           quant
