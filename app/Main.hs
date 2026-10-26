@@ -2,13 +2,13 @@
 
 -- | The command line.
 --
--- With Ott's options (@-i FILE@, @-o FILE.tex@, @-o FILE.typ@,
--- @-tex_filter SRC DST@, @-typst_filter SRC DST@,
--- @-picky_multiple_parses BOOL@, @-tex_name_prefix P@, ...) haskott runs
--- the whole pipeline and writes the outputs, so that it can stand in for
--- @ott@ in a Makefile. @lsp@ runs a language server over stdio. The
--- development subcommands @check@, @dump@, @showraw@, @spec@ and @parse@
--- look at one stage each.
+-- With Ott's options (@-i FILE@, @-o FILE@ for TeX, Typst and the prover
+-- targets, the @-*_filter SRC DST@ options, @-picky_multiple_parses BOOL@,
+-- ...) haskott runs the whole pipeline and writes the outputs, so that it
+-- can stand in for @ott@ in a Makefile. @rename@ renames a root across a
+-- specification and its documents and @lsp@ runs a language server over
+-- stdio. The development subcommands @check@, @roots@, @dump@, @showraw@,
+-- @spec@, @structure@ and @parse@ look at one stage each.
 module Main (main) where
 
 import Control.Monad (foldM, forM, forM_, unless, when)
@@ -83,7 +83,7 @@ main = do
         Left e -> reportError file src e >> exitFailure
         Right tree -> TIO.putStr (dumpTree tree)
     ["dump", "--terms", file] -> do
-      -- the tree after stage two
+      -- the tree after the term splice
       src <- readSource file
       case parseDocument src of
         Left e -> reportError file src e >> exitFailure
@@ -109,7 +109,7 @@ main = do
         Right l -> mapM_ TIO.putStrLn (renameableRoots (ldSpec l))
     (('-' : _) : _) -> ottMain args
     _ -> do
-      hPutStrLn stderr "usage: haskott [-i FILE]... [-o FILE.tex|FILE.typ]... [-tex_filter SRC DST]... [-typst_filter SRC DST]... [OPTION]...\n       haskott rename [--write] OLD NEW FILE...\n       haskott lsp\n       haskott check [--picky] FILE...\n       haskott dump [--terms] FILE\n       haskott showraw FILE\n       haskott spec FILE\n       haskott parse FILE \":root: text\""
+      hPutStrLn stderr "usage: haskott [-i FILE]... [-o FILE.tex|.typ|.v|.thy|.sml|.lem|.ml|.twf]... [-tex_filter SRC DST]... [-typst_filter SRC DST]... [OPTION]...\n       haskott rename [--write] OLD NEW FILE...\n       haskott lsp\n       haskott check [--picky] FILE...\n       haskott roots FILE...\n       haskott dump [--terms] FILE\n       haskott showraw FILE\n       haskott spec FILE\n       haskott structure FILE...\n       haskott parse FILE \":root: text\""
       exitFailure
 
 ------------------------------------------------------------------------
@@ -200,8 +200,9 @@ ottMain args = do
       report d = let (f, src, d') = locateDiagnostic files d in reportDiagnostic f src d'
       tp = makeTermParser spec
       envOf d = withSources (makeSources files) (makeEnv (oTex opts) {optDialect = d} spec (quotationParser policy tp))
-      -- several parses of a term are no error when every target that
-      -- compares them (Ott's TeX, not its Typst) prints them the same
+      -- several parses of a term are no error when every target Ott
+      -- compares them in prints them the same: TeX and the provers but
+      -- OCaml (Ott's targets_for_non_picky), not Typst
       policy
         | oPicky opts = Picky
         | otherwise =

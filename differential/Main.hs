@@ -2,17 +2,29 @@
 
 -- | Compare haskott with the Ott binary over the acceptance corpus.
 --
--- For every corpus file Ott parses, this runs @ott -i FILE -showraw true@
--- and checks that Ott's printout of its raw parse starts with haskott's
--- rendering of the same parse ('Haskott.Raw.Show.showRaw'). Ott prints
--- the raw parse before anything else, so a prefix match means the two
--- parses agree; the first differing line is reported otherwise.
+-- For every corpus file Ott parses, in turn, stopping at the first
+-- disagreement for the file:
 --
--- With @--source-locations N@, Ott and haskott print the outputs with
--- @-output_source_locations N@.
+-- * the raw parse: Ott's @-showraw@ printout must start with haskott's
+--   rendering of it ('Haskott.Raw.Show.showRaw'); Ott prints the raw parse
+--   before anything else, so a prefix match means the parses agree;
+-- * the checked specification: Ott's @-show_sort@ and haskott must agree on
+--   whether the file checks and, for every production, on its elements and
+--   homs;
+-- * for a file that checks, every parse of every term (@-parse@) and
+--   whether the definitions are accepted;
+-- * the TeX, Typst and prover outputs, byte for byte, unless an ambiguous
+--   term's first parse differs from Ott's ('compareTerms').
 --
--- Usage: haskott-differential [--ott DIR] [--report-ott DIR] [--target T]
--- [--only S] [--source-locations N]
+-- Ott is @bin/ott@ in the @--ott@ checkout (default @$HASKOTT_OTT@, else
+-- @../ott@). Run from the repository root: the table is
+-- @test/ott-acceptance.tsv@ and outputs go to @dist-newstyle/differential-tmp@.
+-- @--target@ (coq, isa, hol, lem, ocaml, twf) and @--only@ (a substring of
+-- the path) can be repeated; @--source-locations N@ passes
+-- @-output_source_locations N@ to both.
+--
+-- Usage: haskott-differential [--ott DIR] [--report-ott DIR] [--target T]...
+-- [--only S]... [--source-locations N]
 module Main (main) where
 
 import Control.Monad (forM, unless)
@@ -104,7 +116,7 @@ main = do
                         Just failure -> pure (Just failure)
                         Nothing
                           | firstDiffers -> do
-                              putStrLn (rel ++ ": note: an ambiguous term's first parse differs from Ott's; TeX and Typst output not compared")
+                              putStrLn (rel ++ ": note: an ambiguous term's first parse differs from Ott's; outputs not compared")
                               pure Nothing
                           | otherwise -> do
                               typ <- compareTex ott locations sources Typst rel file spec
@@ -247,7 +259,7 @@ compareAcceptance rel ottAccepted spec =
 -- Returns a disagreement, or whether some ambiguous term's first parse
 -- differs from Ott's: Ott orders parses by OCaml's structural comparison
 -- of its parse-forest nodes, which haskott does not reproduce, so such
--- files are noted and their Typst output is not compared.
+-- files are noted and their outputs are not compared.
 compareTerms :: FilePath -> FilePath -> FilePath -> Spec -> IO (Either String Bool)
 compareTerms ott rel file spec = do
   let requests = [r | r <- termRequests spec, not (T.null (T.strip (trText r)))]
