@@ -3,8 +3,9 @@
 -- | Error recovery on the acceptance corpus.
 --
 -- Every file, including those Ott rejects, parses with recovery into a
--- tree that renders back to the input. And for the first productions of
--- every file that parses, breaking that one production (an unclosed @</@
+-- tree that renders back to the input, and the first error it reports is
+-- the one the strict parser stops at (none when the strict one succeeds).
+-- And for the first three productions of every file that parses, breaking that one production (an unclosed @</@
 -- after its bar) costs exactly that production: the recovering parser
 -- reports one error, the production becomes an error node, and every
 -- other item, rule, production and definition is still there. Parsing

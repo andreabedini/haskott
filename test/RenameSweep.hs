@@ -1,12 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | A property test of rename over the acceptance corpus: in every file
--- that checks, every root that can be renamed is renamed to a fresh name
+-- Ott accepts, every root that can be renamed is renamed to a fresh name
 -- and back, and the second rename must give back the original bytes.
--- A refusal is allowed (a line that does not parse, an ambiguous
--- identifier), but it must be the same refusal both ways round, so the
--- suite reports the refusals by reason; a crash or a round trip that
--- does not restore the file is a failure. Roots that could not be given
+-- Refusing the first rename is allowed (a line that does not parse, an
+-- ambiguous identifier), and the suite reports refusals by reason; a
+-- crash, a refusal on the way back, or a round trip that does not
+-- restore the files is a failure. Roots that could not be given
 -- back their name (a keyword, quoted in the source) are skipped. The
 -- Haskell report is renamed together with its filtered document.
 module Main (main) where

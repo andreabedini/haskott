@@ -3,20 +3,23 @@
 
 -- | @haskott lsp@: a language server over stdio.
 --
--- It reports every problem of the specifications an edited file is part
--- of ('Haskott.Diagnostics.diagnose'), with the specifications read from
--- the nearest @haskott.json@ at or above the file ('Haskott.Project'). Open files are
--- read from the editor and the others from disk.
+-- A specification can span several files and a file can be part of
+-- several specifications; they are read from the nearest @haskott.json@
+-- at or above the file ('Haskott.Project'). Open files are read from the
+-- editor and the others from disk.
 --
--- A check starts a short while after the last change and a newer change to
--- the same specification cancels it, since checking the Haskell report
--- takes a second or two. A file that is part of several specifications
--- shows the problems of all of them.
+-- Diagnostics are every problem of the specifications an edited file is
+-- part of ('Haskott.Diagnostics.diagnose'). A check starts a short while
+-- after the last change and a newer change to the same specification
+-- cancels it, since checking the Haskell report takes a second or two. A
+-- file that is part of several specifications shows the problems of all
+-- of them.
 --
--- Semantic tokens say what the grammar of a specification makes of its
--- identifiers ('Haskott.Highlight'): terminals, nonterminals,
--- metavariables and index variables, in rule lines, productions and
--- quotations. The rest is left to the editor's grammar of Ott.
+-- Definitions, references, highlights and rename find the roots of a
+-- specification through its index ('Haskott.Rename'), kept until one of
+-- its texts changes; the outline comes from 'Haskott.Outline'. Semantic
+-- tokens classify every token ('Haskott.Highlight'), so an editor needs
+-- no grammar of Ott of its own.
 module Server (serverMain) where
 
 import Control.Concurrent (ThreadId, forkIO, killThread, myThreadId, threadDelay)

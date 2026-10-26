@@ -8,7 +8,9 @@
 -- produced by @scripts/ott-acceptance.zsh@. This suite checks that haskott
 -- parses exactly the files Ott parses, and that rendering a parsed file
 -- gives the input back, before and after the rule lines are parsed as
--- terms.
+-- terms, and that the first problem @haskott check@ reports for each file
+-- is still the one in @test/first-diagnostics.tsv@. 'inlineCases' cover
+-- what the corpus does not exercise.
 --
 -- Paths in the table start with @ott/@ or @haskell-report-ott/@. Those
 -- prefixes name the checkout of ott and the formalisation of the report,
