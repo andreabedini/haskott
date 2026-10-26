@@ -286,7 +286,7 @@ item it = case it of
         { mvdIndexvar = metavarKeyword d == T.pack "indexvar"
         , mvdNames = map name (metavarNames d)
         , mvdHoms = map hom (metavarHoms d)
-        , mvdRange = Cursor.range (nodeSyntax d)
+        , mvdRange = Cursor.range (toCursor d)
         }
   A.ItemGrammar g -> ItemGrammar (map rule (grammarRules g))
   A.ItemSubrules s -> ItemSubrules (map subrule (subrulesOf s))
@@ -300,7 +300,7 @@ item it = case it of
       HomSection
         { hsWrapper = homsSectionWrapper s
         , hsItems = map homsItem (homsSectionItems s)
-        , hsRange = Cursor.range (nodeSyntax s)
+        , hsRange = Cursor.range (toCursor s)
         }
   A.ItemDefns d ->
     ItemDefns
@@ -309,7 +309,7 @@ item it = case it of
         , dcWrapper = defnsWrapper d
         , dcHoms = map hom (defnsHoms d)
         , dcDefns = map defn (defnsDefns d)
-        , dcRange = Cursor.range (nodeSyntax d)
+        , dcRange = Cursor.range (toCursor d)
         }
   A.ItemFuns f ->
     ItemFuns
@@ -317,7 +317,7 @@ item it = case it of
         { fcName = funsName f
         , fcHoms = map hom (funsHoms f)
         , fcDefns = map fundefn (funsDefns f)
-        , fcRange = Cursor.range (nodeSyntax f)
+        , fcRange = Cursor.range (toCursor f)
         }
   A.ItemCoqSection s -> ItemCoqSection (coqSectionKeyword s == T.pack "begincoqsection") (coqSectionName s)
   A.ItemCoqVariable v -> ItemCoqVariable (coqVariableName v)
@@ -326,7 +326,7 @@ name :: A.Name -> (Text, [Hom])
 name n = (nameIdent n, map hom (nameHoms n))
 
 hom :: A.Hom -> Hom
-hom h = Hom {homName = A.homName h, homSpec = map homSpecEl (homBody h), homRange = Cursor.range (nodeSyntax h)}
+hom h = Hom {homName = A.homName h, homSpec = map homSpecEl (homBody h), homRange = Cursor.range (toCursor h)}
 
 homSpecEl :: HomPart -> HomSpecEl
 homSpecEl p = case p of
@@ -365,7 +365,7 @@ homInner parts = case dropWhile isBlank parts of
       _ -> T.empty
 
 embed :: A.Embed -> Embed
-embed e = Embed {embedName = A.embedName e, embedSpec = map embedEl (embedBody e), embedRange = Cursor.range (nodeSyntax e)}
+embed e = Embed {embedName = A.embedName e, embedSpec = map embedEl (embedBody e), embedRange = Cursor.range (toCursor e)}
 
 embedEl :: HomPart -> EmbedEl
 embedEl p = case p of
@@ -389,7 +389,7 @@ rule r =
     , rulePrefix = A.rulePrefix r
     , ruleHoms = map hom (A.ruleHoms r)
     , ruleProds = map prod (A.ruleProds r)
-    , ruleRange = Cursor.range (nodeSyntax r)
+    , ruleRange = Cursor.range (toCursor r)
     }
 
 prod :: A.Prod -> Prod
@@ -400,7 +400,7 @@ prod p =
     , prodName = A.prodName p
     , prodBindspecs = concatMap (map bindspec . bindspecsOf) (A.prodBindspecs p)
     , prodHoms = map hom (A.prodHoms p)
-    , prodRange = Cursor.range (nodeSyntax p)
+    , prodRange = Cursor.range (toCursor p)
     }
 
 element :: Elem -> Element
@@ -420,7 +420,7 @@ compBoundOf b = case boundTokens b of
 
 bindspec :: A.Bindspec -> Bindspec
 bindspec b =
-  let range = Cursor.range (nodeSyntax b)
+  let range = Cursor.range (toCursor b)
    in case bindspecTokens b of
         [Left (K.Keyword, _), Right m, Left (K.Keyword, _), Left (_, x)] -> Bind (mse m) x range
         [Left (_, f), Left (K.Eq, _), Right m] -> AuxFnDef f (mse m) range
@@ -445,13 +445,13 @@ mse m = case mseParts m of
 
 subrule :: A.Subrule -> Subrule
 subrule s = case subruleIdents s of
-  [lo, hi] -> Subrule lo hi (map hom (subruleHoms s)) (Cursor.range (nodeSyntax s))
-  ids -> Subrule (headOr ids) (headOr (drop 1 ids)) (map hom (subruleHoms s)) (Cursor.range (nodeSyntax s))
+  [lo, hi] -> Subrule lo hi (map hom (subruleHoms s)) (Cursor.range (toCursor s))
+  ids -> Subrule (headOr ids) (headOr (drop 1 ids)) (map hom (subruleHoms s)) (Cursor.range (toCursor s))
 
 contextrule :: A.Contextrule -> Contextrule
 contextrule c =
   let ids = contextruleIdents c
-   in Contextrule (headOr ids) (headOr (drop 1 ids)) (headOr (drop 2 ids)) (Cursor.range (nodeSyntax c))
+   in Contextrule (headOr ids) (headOr (drop 1 ids)) (headOr (drop 2 ids)) (Cursor.range (toCursor c))
 
 substitution :: A.Substitution -> Substitution
 substitution s =
@@ -462,7 +462,7 @@ substitution s =
         , sbThat = headOr (drop 1 ids)
         , sbName = headOr (drop 2 ids)
         , sbHoms = map hom (substitutionHoms s)
-        , sbRange = Cursor.range (nodeSyntax s)
+        , sbRange = Cursor.range (toCursor s)
         }
 
 freevar :: A.Freevar -> Freevar
@@ -473,13 +473,13 @@ freevar f =
         , fvThat = headOr (drop 1 ids)
         , fvName = headOr (drop 2 ids)
         , fvHoms = map hom (freevarHoms f)
-        , fvRange = Cursor.range (nodeSyntax f)
+        , fvRange = Cursor.range (toCursor f)
         }
 
 parsingAnnotation :: A.ParsingAnnotation -> ParsingAnnotation
 parsingAnnotation p =
   let ids = parsingIdents p
-   in ParsingAnnotation (headOr ids) (parsingOperator p) (headOr (drop 1 ids)) (Cursor.range (nodeSyntax p))
+   in ParsingAnnotation (headOr ids) (parsingOperator p) (headOr (drop 1 ids)) (Cursor.range (toCursor p))
 
 homsItem :: A.HomsItem -> HomSectionItem
 homsItem i =
@@ -487,7 +487,7 @@ homsItem i =
     { hsiName = homsItemName i
     , hsiBindspecs = concatMap (map bindspec . bindspecsOf) (homsItemBindspecs i)
     , hsiHoms = map hom (homsItemHoms i)
-    , hsiRange = Cursor.range (nodeSyntax i)
+    , hsiRange = Cursor.range (toCursor i)
     }
 
 defn :: A.Defn -> Defn
@@ -499,7 +499,7 @@ defn d =
     , dWrapper = defnWrapper d
     , dHoms = map hom (defnHoms d)
     , dBody = defnBlocks d
-    , dRange = Cursor.range (nodeSyntax d)
+    , dRange = Cursor.range (toCursor d)
     }
 
 -- | The blocks of a definition body as Ott's parser sees them (GRAMMAR.md
@@ -509,7 +509,7 @@ defn d =
 -- as trivia, inside a rule node when Rule 2 gave them to it, so the body is
 -- flattened back into lines here.
 defnBlocks :: A.Defn -> [SemirawRule]
-defnBlocks d = go Nothing Nothing (linesAfterBy (nodeSyntax d))
+defnBlocks d = go Nothing Nothing (linesAfterBy (toCursor d))
   where
     -- current: the rule of the open block, if any; open: whether a block is
     -- open (comment lines seen); lines: remaining
@@ -524,7 +524,7 @@ defnBlocks d = go Nothing Nothing (linesAfterBy (nodeSyntax d))
       (Just b, start) -> [bodyItem start b]
       (Nothing, Just _) -> [LinelessRule [] emptyRange]
       (Nothing, Nothing) -> []
-    emptyRange = Cursor.range (nodeSyntax d)
+    emptyRange = Cursor.range (toCursor d)
 
 -- | A line of a definition body, with the offset it starts at.
 data BodyLine = LBlank | LComment Int | LNode BodyItem Int
@@ -605,16 +605,16 @@ bodyItem blockStart b = case b of
         Just rl -> RuleAnnot (ruleLineCategories rl) (ruleLineName rl) (map hom (ruleLineHoms rl))
         Nothing -> RuleAnnot [] T.empty [])
       (map lineOf (druleConclusions r))
-      (Cursor.range (nodeSyntax r))
-      (map (Cursor.range . nodeSyntax) (drulePremises r))
-      (map (Cursor.range . nodeSyntax) (druleConclusions r))
+      (Cursor.range (toCursor r))
+      (map (Cursor.range . toCursor) (drulePremises r))
+      (map (Cursor.range . toCursor) (druleConclusions r))
   BodyLineless l ->
-    let r = Cursor.range (nodeSyntax l)
+    let r = Cursor.range (toCursor l)
         r' = case blockStart of
           Just s | fromIntegral s < Range.start r -> fromMaybe r (Range.fromEnds (fromIntegral s) (Range.end r))
           _ -> r
      in LinelessRule (map lineOf (linelessFormulas l)) r'
-  BodyDefnCom c -> DefnComRule (map embedEl (defnComBody c)) (Cursor.range (nodeSyntax c))
+  BodyDefnCom c -> DefnComRule (map embedEl (defnComBody c)) (Cursor.range (toCursor c))
 
 -- | A line as Ott's @LINE@ token has it: indentation included.
 lineOf :: LineNode -> Text
@@ -628,7 +628,7 @@ fundefn f =
     , fdName = fundefnName f
     , fdHoms = map hom (fundefnHoms f)
     , fdClauses = map lineOf (fundefnClauses f)
-    , fdRange = Cursor.range (nodeSyntax f)
+    , fdRange = Cursor.range (toCursor f)
     }
 
 headOr :: [Text] -> Text

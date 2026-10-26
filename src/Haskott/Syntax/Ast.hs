@@ -222,10 +222,12 @@ view k = Ast.matchNode (== k)
 
 newtype Document = Document C
 
-instance AstNode Document where
-  type AstNodeKind Document = Kind
-  castNode = view K.Document Document
-  nodeSyntax (Document c) = c
+instance AstView Document where
+  type AstViewKind Document = Kind
+  fromCursor = view K.Document Document
+  toCursor (Document c) = c
+
+instance AstNode Document
 
 data Item
   = ItemMetavar MetavarDecl
@@ -267,10 +269,12 @@ documentItems (Document c) = mapMaybe castItem (children c)
 
 newtype MetavarDecl = MetavarDecl C
 
-instance AstNode MetavarDecl where
-  type AstNodeKind MetavarDecl = Kind
-  castNode = view K.MetavarDecl MetavarDecl
-  nodeSyntax (MetavarDecl c) = c
+instance AstView MetavarDecl where
+  type AstViewKind MetavarDecl = Kind
+  fromCursor = view K.MetavarDecl MetavarDecl
+  toCursor (MetavarDecl c) = c
+
+instance AstNode MetavarDecl
 
 -- | @metavar@ or @indexvar@.
 metavarKeyword :: MetavarDecl -> Text
@@ -285,10 +289,12 @@ metavarHoms (MetavarDecl c) = Ast.children c
 
 newtype Name = Name C
 
-instance AstNode Name where
-  type AstNodeKind Name = Kind
-  castNode = view K.Name Name
-  nodeSyntax (Name c) = c
+instance AstView Name where
+  type AstViewKind Name = Kind
+  fromCursor = view K.Name Name
+  toCursor (Name c) = c
+
+instance AstNode Name
 
 nameIdent :: Name -> Text
 nameIdent (Name c) = maybe "" id (listToMaybe (idents c))
@@ -298,20 +304,24 @@ nameHoms (Name c) = Ast.children c
 
 newtype GrammarSection = GrammarSection C
 
-instance AstNode GrammarSection where
-  type AstNodeKind GrammarSection = Kind
-  castNode = view K.GrammarSection GrammarSection
-  nodeSyntax (GrammarSection c) = c
+instance AstView GrammarSection where
+  type AstViewKind GrammarSection = Kind
+  fromCursor = view K.GrammarSection GrammarSection
+  toCursor (GrammarSection c) = c
+
+instance AstNode GrammarSection
 
 grammarRules :: GrammarSection -> [Rule]
 grammarRules (GrammarSection c) = Ast.children c
 
 newtype Rule = Rule C
 
-instance AstNode Rule where
-  type AstNodeKind Rule = Kind
-  castNode = view K.Rule Rule
-  nodeSyntax (Rule c) = c
+instance AstView Rule where
+  type AstViewKind Rule = Kind
+  fromCursor = view K.Rule Rule
+  toCursor (Rule c) = c
+
+instance AstNode Rule
 
 ruleNames :: Rule -> [Name]
 ruleNames (Rule c) = Ast.children c
@@ -328,10 +338,12 @@ ruleProds (Rule c) = Ast.children c
 
 newtype Prod = Prod C
 
-instance AstNode Prod where
-  type AstNodeKind Prod = Kind
-  castNode = view K.Prod Prod
-  nodeSyntax (Prod c) = c
+instance AstView Prod where
+  type AstViewKind Prod = Kind
+  fromCursor = view K.Prod Prod
+  toCursor (Prod c) = c
+
+instance AstNode Prod
 
 -- | An element of a production or judgement form.
 data Elem
@@ -368,10 +380,12 @@ prodHoms (Prod c) = Ast.children c
 
 newtype Comp = Comp C
 
-instance AstNode Comp where
-  type AstNodeKind Comp = Kind
-  castNode = view K.Comp Comp
-  nodeSyntax (Comp c) = c
+instance AstView Comp where
+  type AstViewKind Comp = Kind
+  fromCursor = view K.Comp Comp
+  toCursor (Comp c) = c
+
+instance AstNode Comp
 
 compSegments :: C -> [[C]]
 compSegments c = go (children c)
@@ -396,10 +410,12 @@ compBound (Comp c) = Ast.child c
 
 newtype CompBound = CompBound C
 
-instance AstNode CompBound where
-  type AstNodeKind CompBound = Kind
-  castNode = view K.CompBound CompBound
-  nodeSyntax (CompBound c) = c
+instance AstView CompBound where
+  type AstViewKind CompBound = Kind
+  fromCursor = view K.CompBound CompBound
+  toCursor (CompBound c) = c
+
+instance AstNode CompBound
 
 -- | The bound's tokens in order, with trivia left out: identifiers and
 -- elements dequoted, @IN@ and the dots as written.
@@ -413,20 +429,24 @@ boundTokens (CompBound c) =
 
 newtype Bindspecs = Bindspecs C
 
-instance AstNode Bindspecs where
-  type AstNodeKind Bindspecs = Kind
-  castNode = view K.Bindspecs Bindspecs
-  nodeSyntax (Bindspecs c) = c
+instance AstView Bindspecs where
+  type AstViewKind Bindspecs = Kind
+  fromCursor = view K.Bindspecs Bindspecs
+  toCursor (Bindspecs c) = c
+
+instance AstNode Bindspecs
 
 bindspecsOf :: Bindspecs -> [Bindspec]
 bindspecsOf (Bindspecs c) = Ast.children c
 
 newtype Bindspec = Bindspec C
 
-instance AstNode Bindspec where
-  type AstNodeKind Bindspec = Kind
-  castNode = view K.Bindspec Bindspec
-  nodeSyntax (Bindspec c) = c
+instance AstView Bindspec where
+  type AstViewKind Bindspec = Kind
+  fromCursor = view K.Bindspec Bindspec
+  toCursor (Bindspec c) = c
+
+instance AstNode Bindspec
 
 -- | The non-trivia children in order: tokens as (kind, dequoted text) and
 -- 'Mse' nodes.
@@ -440,10 +460,12 @@ bindspecTokens (Bindspec c) = mapMaybe part (children c)
 
 newtype Mse = Mse C
 
-instance AstNode Mse where
-  type AstNodeKind Mse = Kind
-  castNode = view K.Mse Mse
-  nodeSyntax (Mse c) = c
+instance AstView Mse where
+  type AstViewKind Mse = Kind
+  fromCursor = view K.Mse Mse
+  toCursor (Mse c) = c
+
+instance AstNode Mse
 
 data MsePart
   = MseTok Kind Text
@@ -462,10 +484,12 @@ mseParts (Mse c) = mapMaybe part (children c)
 
 newtype Hom = Hom C
 
-instance AstNode Hom where
-  type AstNodeKind Hom = Kind
-  castNode = view K.Hom Hom
-  nodeSyntax (Hom c) = c
+instance AstView Hom where
+  type AstViewKind Hom = Kind
+  fromCursor = view K.Hom Hom
+  toCursor (Hom c) = c
+
+instance AstNode Hom
 
 -- | The pieces of a hom or embed body after its name: text runs, blanks,
 -- dots, and references.
@@ -504,10 +528,12 @@ homBody (Hom c) = bodyParts (afterName True c)
 
 newtype HomRef = HomRef C
 
-instance AstNode HomRef where
-  type AstNodeKind HomRef = Kind
-  castNode = view K.HomRef HomRef
-  nodeSyntax (HomRef c) = c
+instance AstView HomRef where
+  type AstViewKind HomRef = Kind
+  fromCursor = view K.HomRef HomRef
+  toCursor (HomRef c) = c
+
+instance AstNode HomRef
 
 data RefPart
   = RefText Text
@@ -536,10 +562,12 @@ homRefParts (HomRef c) = mapMaybe part (children c)
 
 newtype Embed = Embed C
 
-instance AstNode Embed where
-  type AstNodeKind Embed = Kind
-  castNode = view K.Embed Embed
-  nodeSyntax (Embed c) = c
+instance AstView Embed where
+  type AstViewKind Embed = Kind
+  fromCursor = view K.Embed Embed
+  toCursor (Embed c) = c
+
+instance AstNode Embed
 
 embedName :: Embed -> Text
 embedName (Embed c) = maybe "" tokenValue (listToMaybe (tokens K.HomText c))
@@ -549,20 +577,24 @@ embedBody (Embed c) = bodyParts (afterName True c)
 
 newtype SubrulesSection = SubrulesSection C
 
-instance AstNode SubrulesSection where
-  type AstNodeKind SubrulesSection = Kind
-  castNode = view K.SubrulesSection SubrulesSection
-  nodeSyntax (SubrulesSection c) = c
+instance AstView SubrulesSection where
+  type AstViewKind SubrulesSection = Kind
+  fromCursor = view K.SubrulesSection SubrulesSection
+  toCursor (SubrulesSection c) = c
+
+instance AstNode SubrulesSection
 
 subrulesOf :: SubrulesSection -> [Subrule]
 subrulesOf (SubrulesSection c) = Ast.children c
 
 newtype Subrule = Subrule C
 
-instance AstNode Subrule where
-  type AstNodeKind Subrule = Kind
-  castNode = view K.Subrule Subrule
-  nodeSyntax (Subrule c) = c
+instance AstView Subrule where
+  type AstViewKind Subrule = Kind
+  fromCursor = view K.Subrule Subrule
+  toCursor (Subrule c) = c
+
+instance AstNode Subrule
 
 -- | Lower root, upper root.
 subruleIdents :: Subrule -> [Text]
@@ -573,20 +605,24 @@ subruleHoms (Subrule c) = Ast.children c
 
 newtype ContextrulesSection = ContextrulesSection C
 
-instance AstNode ContextrulesSection where
-  type AstNodeKind ContextrulesSection = Kind
-  castNode = view K.ContextrulesSection ContextrulesSection
-  nodeSyntax (ContextrulesSection c) = c
+instance AstView ContextrulesSection where
+  type AstViewKind ContextrulesSection = Kind
+  fromCursor = view K.ContextrulesSection ContextrulesSection
+  toCursor (ContextrulesSection c) = c
+
+instance AstNode ContextrulesSection
 
 contextrulesOf :: ContextrulesSection -> [Contextrule]
 contextrulesOf (ContextrulesSection c) = Ast.children c
 
 newtype Contextrule = Contextrule C
 
-instance AstNode Contextrule where
-  type AstNodeKind Contextrule = Kind
-  castNode = view K.Contextrule Contextrule
-  nodeSyntax (Contextrule c) = c
+instance AstView Contextrule where
+  type AstViewKind Contextrule = Kind
+  fromCursor = view K.Contextrule Contextrule
+  toCursor (Contextrule c) = c
+
+instance AstNode Contextrule
 
 -- | Context root, target root, hole root.
 contextruleIdents :: Contextrule -> [Text]
@@ -594,20 +630,24 @@ contextruleIdents (Contextrule c) = idents c
 
 newtype SubstitutionsSection = SubstitutionsSection C
 
-instance AstNode SubstitutionsSection where
-  type AstNodeKind SubstitutionsSection = Kind
-  castNode = view K.SubstitutionsSection SubstitutionsSection
-  nodeSyntax (SubstitutionsSection c) = c
+instance AstView SubstitutionsSection where
+  type AstViewKind SubstitutionsSection = Kind
+  fromCursor = view K.SubstitutionsSection SubstitutionsSection
+  toCursor (SubstitutionsSection c) = c
+
+instance AstNode SubstitutionsSection
 
 substitutionsOf :: SubstitutionsSection -> [Substitution]
 substitutionsOf (SubstitutionsSection c) = Ast.children c
 
 newtype Substitution = Substitution C
 
-instance AstNode Substitution where
-  type AstNodeKind Substitution = Kind
-  castNode = view K.Substitution Substitution
-  nodeSyntax (Substitution c) = c
+instance AstView Substitution where
+  type AstViewKind Substitution = Kind
+  fromCursor = view K.Substitution Substitution
+  toCursor (Substitution c) = c
+
+instance AstNode Substitution
 
 -- | @single@ or @multiple@.
 substitutionKind :: Substitution -> Text
@@ -622,20 +662,24 @@ substitutionHoms (Substitution c) = Ast.children c
 
 newtype FreevarsSection = FreevarsSection C
 
-instance AstNode FreevarsSection where
-  type AstNodeKind FreevarsSection = Kind
-  castNode = view K.FreevarsSection FreevarsSection
-  nodeSyntax (FreevarsSection c) = c
+instance AstView FreevarsSection where
+  type AstViewKind FreevarsSection = Kind
+  fromCursor = view K.FreevarsSection FreevarsSection
+  toCursor (FreevarsSection c) = c
+
+instance AstNode FreevarsSection
 
 freevarsOf :: FreevarsSection -> [Freevar]
 freevarsOf (FreevarsSection c) = Ast.children c
 
 newtype Freevar = Freevar C
 
-instance AstNode Freevar where
-  type AstNodeKind Freevar = Kind
-  castNode = view K.Freevar Freevar
-  nodeSyntax (Freevar c) = c
+instance AstView Freevar where
+  type AstViewKind Freevar = Kind
+  fromCursor = view K.Freevar Freevar
+  toCursor (Freevar c) = c
+
+instance AstNode Freevar
 
 -- | This root, that root, function name.
 freevarIdents :: Freevar -> [Text]
@@ -646,30 +690,36 @@ freevarHoms (Freevar c) = Ast.children c
 
 newtype EmbedSection = EmbedSection C
 
-instance AstNode EmbedSection where
-  type AstNodeKind EmbedSection = Kind
-  castNode = view K.EmbedSection EmbedSection
-  nodeSyntax (EmbedSection c) = c
+instance AstView EmbedSection where
+  type AstViewKind EmbedSection = Kind
+  fromCursor = view K.EmbedSection EmbedSection
+  toCursor (EmbedSection c) = c
+
+instance AstNode EmbedSection
 
 embedsOf :: EmbedSection -> [Embed]
 embedsOf (EmbedSection c) = Ast.children c
 
 newtype ParsingSection = ParsingSection C
 
-instance AstNode ParsingSection where
-  type AstNodeKind ParsingSection = Kind
-  castNode = view K.ParsingSection ParsingSection
-  nodeSyntax (ParsingSection c) = c
+instance AstView ParsingSection where
+  type AstViewKind ParsingSection = Kind
+  fromCursor = view K.ParsingSection ParsingSection
+  toCursor (ParsingSection c) = c
+
+instance AstNode ParsingSection
 
 parsingAnnotations :: ParsingSection -> [ParsingAnnotation]
 parsingAnnotations (ParsingSection c) = Ast.children c
 
 newtype ParsingAnnotation = ParsingAnnotation C
 
-instance AstNode ParsingAnnotation where
-  type AstNodeKind ParsingAnnotation = Kind
-  castNode = view K.ParsingAnnotation ParsingAnnotation
-  nodeSyntax (ParsingAnnotation c) = c
+instance AstView ParsingAnnotation where
+  type AstViewKind ParsingAnnotation = Kind
+  fromCursor = view K.ParsingAnnotation ParsingAnnotation
+  toCursor (ParsingAnnotation c) = c
+
+instance AstNode ParsingAnnotation
 
 parsingIdents :: ParsingAnnotation -> [Text]
 parsingIdents (ParsingAnnotation c) = idents c
@@ -681,10 +731,12 @@ parsingOperator (ParsingAnnotation c) =
 
 newtype HomsSection = HomsSection C
 
-instance AstNode HomsSection where
-  type AstNodeKind HomsSection = Kind
-  castNode = view K.HomsSection HomsSection
-  nodeSyntax (HomsSection c) = c
+instance AstView HomsSection where
+  type AstViewKind HomsSection = Kind
+  fromCursor = view K.HomsSection HomsSection
+  toCursor (HomsSection c) = c
+
+instance AstNode HomsSection
 
 homsSectionWrapper :: HomsSection -> Text
 homsSectionWrapper (HomsSection c) = maybe "" id (listToMaybe (idents c))
@@ -694,10 +746,12 @@ homsSectionItems (HomsSection c) = Ast.children c
 
 newtype HomsItem = HomsItem C
 
-instance AstNode HomsItem where
-  type AstNodeKind HomsItem = Kind
-  castNode = view K.HomsItem HomsItem
-  nodeSyntax (HomsItem c) = c
+instance AstView HomsItem where
+  type AstViewKind HomsItem = Kind
+  fromCursor = view K.HomsItem HomsItem
+  toCursor (HomsItem c) = c
+
+instance AstNode HomsItem
 
 homsItemName :: HomsItem -> Text
 homsItemName (HomsItem c) = maybe "" id (listToMaybe (idents c))
@@ -710,10 +764,12 @@ homsItemHoms (HomsItem c) = Ast.children c
 
 newtype CoqSection = CoqSection C
 
-instance AstNode CoqSection where
-  type AstNodeKind CoqSection = Kind
-  castNode = view K.CoqSection CoqSection
-  nodeSyntax (CoqSection c) = c
+instance AstView CoqSection where
+  type AstViewKind CoqSection = Kind
+  fromCursor = view K.CoqSection CoqSection
+  toCursor (CoqSection c) = c
+
+instance AstNode CoqSection
 
 coqSectionKeyword :: CoqSection -> Text
 coqSectionKeyword (CoqSection c) = keywordText c
@@ -723,10 +779,12 @@ coqSectionName (CoqSection c) = maybe "" id (listToMaybe (idents c))
 
 newtype CoqVariable = CoqVariable C
 
-instance AstNode CoqVariable where
-  type AstNodeKind CoqVariable = Kind
-  castNode = view K.CoqVariable CoqVariable
-  nodeSyntax (CoqVariable c) = c
+instance AstView CoqVariable where
+  type AstViewKind CoqVariable = Kind
+  fromCursor = view K.CoqVariable CoqVariable
+  toCursor (CoqVariable c) = c
+
+instance AstNode CoqVariable
 
 coqVariableName :: CoqVariable -> Text
 coqVariableName (CoqVariable c) = maybe "" id (listToMaybe (idents c))
@@ -736,10 +794,12 @@ coqVariableName (CoqVariable c) = maybe "" id (listToMaybe (idents c))
 
 newtype Defns = Defns C
 
-instance AstNode Defns where
-  type AstNodeKind Defns = Kind
-  castNode = view K.Defns Defns
-  nodeSyntax (Defns c) = c
+instance AstView Defns where
+  type AstViewKind Defns = Kind
+  fromCursor = view K.Defns Defns
+  toCursor (Defns c) = c
+
+instance AstNode Defns
 
 defnsName :: Defns -> Text
 defnsName (Defns c) = maybe "" id (listToMaybe (idents c))
@@ -755,10 +815,12 @@ defnsDefns (Defns c) = Ast.children c
 
 newtype Defn = Defn C
 
-instance AstNode Defn where
-  type AstNodeKind Defn = Kind
-  castNode = view K.Defn Defn
-  nodeSyntax (Defn c) = c
+instance AstView Defn where
+  type AstViewKind Defn = Kind
+  fromCursor = view K.Defn Defn
+  toCursor (Defn c) = c
+
+instance AstNode Defn
 
 defnElements :: Defn -> [Elem]
 defnElements (Defn c) = elementsOf (segment 0 c)
@@ -792,10 +854,12 @@ castBodyItem t = case Cursor.kind t of
 
 newtype DRule = DRule C
 
-instance AstNode DRule where
-  type AstNodeKind DRule = Kind
-  castNode = view K.DRule DRule
-  nodeSyntax (DRule c) = c
+instance AstView DRule where
+  type AstViewKind DRule = Kind
+  fromCursor = view K.DRule DRule
+  toCursor (DRule c) = c
+
+instance AstNode DRule
 
 drulePremises :: DRule -> [LineNode]
 drulePremises (DRule c) = map LineNode (nodes K.Premise c)
@@ -808,10 +872,12 @@ druleConclusions (DRule c) = map LineNode (nodes K.Conclusion c)
 
 newtype RuleLine = RuleLine C
 
-instance AstNode RuleLine where
-  type AstNodeKind RuleLine = Kind
-  castNode = view K.RuleLine RuleLine
-  nodeSyntax (RuleLine c) = c
+instance AstView RuleLine where
+  type AstViewKind RuleLine = Kind
+  fromCursor = view K.RuleLine RuleLine
+  toCursor (RuleLine c) = c
+
+instance AstNode RuleLine
 
 ruleLineDashes :: RuleLine -> Text
 ruleLineDashes (RuleLine c) = maybe "" tokenValue (listToMaybe (tokens K.Dashes c))
@@ -834,10 +900,12 @@ ruleLineHoms (RuleLine c) = Ast.children c
 -- | A 'Premise', 'Conclusion', 'Formula' or 'Clause' node.
 newtype LineNode = LineNode C
 
-instance AstNode LineNode where
-  type AstNodeKind LineNode = Kind
-  castNode = Ast.matchNode (`elem` [K.Premise, K.Conclusion, K.Formula, K.Clause]) LineNode
-  nodeSyntax (LineNode c) = c
+instance AstView LineNode where
+  type AstViewKind LineNode = Kind
+  fromCursor = Ast.matchNode (`elem` [K.Premise, K.Conclusion, K.Formula, K.Clause]) LineNode
+  toCursor (LineNode c) = c
+
+instance AstNode LineNode
 
 lineIndent :: LineNode -> Text
 lineIndent (LineNode c) = maybe "" tokenValue (listToMaybe (tokens K.Space c))
@@ -847,20 +915,24 @@ lineText (LineNode c) = maybe "" tokenValue (listToMaybe (tokens K.Line c))
 
 newtype Lineless = Lineless C
 
-instance AstNode Lineless where
-  type AstNodeKind Lineless = Kind
-  castNode = view K.Lineless Lineless
-  nodeSyntax (Lineless c) = c
+instance AstView Lineless where
+  type AstViewKind Lineless = Kind
+  fromCursor = view K.Lineless Lineless
+  toCursor (Lineless c) = c
+
+instance AstNode Lineless
 
 linelessFormulas :: Lineless -> [LineNode]
 linelessFormulas (Lineless c) = map LineNode (nodes K.Formula c)
 
 newtype DefnCom = DefnCom C
 
-instance AstNode DefnCom where
-  type AstNodeKind DefnCom = Kind
-  castNode = view K.DefnCom DefnCom
-  nodeSyntax (DefnCom c) = c
+instance AstView DefnCom where
+  type AstViewKind DefnCom = Kind
+  fromCursor = view K.DefnCom DefnCom
+  toCursor (DefnCom c) = c
+
+instance AstNode DefnCom
 
 -- | The body after @com@.
 defnComBody :: DefnCom -> [HomPart]
@@ -868,10 +940,12 @@ defnComBody (DefnCom c) = bodyParts (afterName False c)
 
 newtype Funs = Funs C
 
-instance AstNode Funs where
-  type AstNodeKind Funs = Kind
-  castNode = view K.Funs Funs
-  nodeSyntax (Funs c) = c
+instance AstView Funs where
+  type AstViewKind Funs = Kind
+  fromCursor = view K.Funs Funs
+  toCursor (Funs c) = c
+
+instance AstNode Funs
 
 funsName :: Funs -> Text
 funsName (Funs c) = maybe "" id (listToMaybe (idents c))
@@ -884,10 +958,12 @@ funsDefns (Funs c) = Ast.children c
 
 newtype Fundefn = Fundefn C
 
-instance AstNode Fundefn where
-  type AstNodeKind Fundefn = Kind
-  castNode = view K.Fundefn Fundefn
-  nodeSyntax (Fundefn c) = c
+instance AstView Fundefn where
+  type AstViewKind Fundefn = Kind
+  fromCursor = view K.Fundefn Fundefn
+  toCursor (Fundefn c) = c
+
+instance AstNode Fundefn
 
 fundefnElements :: Fundefn -> [Elem]
 fundefnElements (Fundefn c) = elementsOf (segment 0 c)
