@@ -54,12 +54,12 @@ spliceTerms policy tp doc =
       pure [Node (Green.node (Cursor.kind c) els)]
 
     top c = case Cursor.kind c of
-      Defns -> rebuild c (defnsChild (maybe "" defnsWrapper (castNode c)))
-      Funs -> rebuild c (funsChild (maybe "" funsName (castNode c)))
+      Defns -> rebuild c (defnsChild (maybe "" defnsWrapper (fromCursor c)))
+      Funs -> rebuild c (funsChild (maybe "" funsName (fromCursor c)))
       _ -> keep c
 
     defnsChild wrapper c = case Cursor.kind c of
-      Defn -> rebuild c (defnChild (wrapper <> maybe "" defnName (castNode c)))
+      Defn -> rebuild c (defnChild (wrapper <> maybe "" defnName (fromCursor c)))
       _ -> keep c
 
     defnChild prodName c = case Cursor.kind c of

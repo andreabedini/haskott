@@ -75,14 +75,14 @@ item it = case it of
 
 -- | A symbol spanning one node, whose name is the first token under
 -- another node that spells it (or that whole node, when none does).
-symbol :: (AstNode a, AstNodeKind a ~ Kind, AstNode b, AstNodeKind b ~ Kind) => a -> SymbolKind -> b -> Text -> [Symbol] -> Symbol
+symbol :: (AstNode a, AstViewKind a ~ Kind, AstNode b, AstViewKind b ~ Kind) => a -> SymbolKind -> b -> Text -> [Symbol] -> Symbol
 symbol nameNode kind whole name =
-  Symbol name kind (bytes (nodeSyntax whole)) (maybe (bytes (nodeSyntax nameNode)) bytes spelled)
+  Symbol name kind (bytes (toCursor whole)) (maybe (bytes (toCursor nameNode)) bytes spelled)
   where
     spelled =
       listToMaybe
         [ c
-        | c <- Cursor.descendants (nodeSyntax nameNode)
+        | c <- Cursor.descendants (toCursor nameNode)
         , Token t <- [Cursor.green c]
         , not (T.null name)
         , A.identValue (Green.text t) == name

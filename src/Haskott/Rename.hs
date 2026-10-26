@@ -274,7 +274,7 @@ treeRename ctx s tree
             let owner' = case Cursor.kind c of
                   k | k `elem` [K.Prod, K.Defn, K.Fundefn, K.MetavarDecl, K.Rule] -> ownerIdents c
                   K.DRule -> Set.empty
-                  K.HomsItem -> case (castNode c, Cursor.parent c >>= castNode) of
+                  K.HomsItem -> case (fromCursor c, Cursor.parent c >>= fromCursor) of
                     (Just item, Just section) -> M.findWithDefault Set.empty (A.homsSectionWrapper section <> A.homsItemName item) (cOwners ctx)
                     _ -> Set.empty
                   _ -> owner
@@ -439,12 +439,12 @@ ownerIdents c =
 namedOwners :: GreenNode Kind -> M.Map Text (Set.Set Text)
 namedOwners tree =
   M.fromList $
-    [ (A.rulePrefix r <> A.prodName p, ownerIdents (nodeSyntax p))
+    [ (A.rulePrefix r <> A.prodName p, ownerIdents (toCursor p))
     | A.ItemGrammar g <- items
     , r <- A.grammarRules g
     , p <- A.ruleProds r
     ]
-      ++ [ (A.defnsWrapper ds <> A.defnName d, ownerIdents (nodeSyntax d))
+      ++ [ (A.defnsWrapper ds <> A.defnName d, ownerIdents (toCursor d))
          | A.ItemDefns ds <- items
          , d <- A.defnsDefns ds
          ]
