@@ -2,8 +2,7 @@
 
 -- | Ott's @subrules_pp.ml@: the predicates that carve each subrule out of
 -- the type of its top rule. For each root with a non-free definition
--- (one on the left of a subrule, or one whose productions mention such a
--- root), a function @is_lower_of_top@ tests, production by production of
+-- (see 'Haskott.Prover.Defns.nonFreeNtrs'), a function @is_lower_of_top@ tests, production by production of
 -- the upper rule, whether a term is in the lower rule; in Isabelle with
 -- @primrec@ the tests over lists are functions of their own.
 module Haskott.Prover.Subrules

@@ -245,6 +245,8 @@ makeEnv t opts deps axs quotation spec =
     , envOpts = opts
     , envSpec = spec
     , envDeps = deps
+    -- each index keeps the first definition of a name, as Ott's lookups
+    -- do ('M.fromList' keeps the last, hence the reversals)
     , envRuleByNtr = M.fromList [(ruleName r, r) | r <- reverse (specRules spec)]
     , envRuleByName = M.fromList [(n, r) | r <- reverse (specRules spec), (n, _) <- ruleNames r]
     , envMvdByMvr = M.fromList [(mvdName md, md) | md <- reverse (specMetavars spec)]

@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | The prover back ends: Ott's output for Coq, Isabelle, HOL, Lem and
--- OCaml.
+-- | The prover back ends: Ott's output for Coq, Isabelle, HOL, Lem, OCaml
+-- and Twelf.
 module Haskott.Prover
   ( Target (..)
   , targetName

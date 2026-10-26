@@ -411,6 +411,7 @@ ppArities env envT = do
           toRhs m = case m of
             Empty -> ("0", [])
             MetaVarExp _ -> ("1", [])
+            -- Ott's typo, kept: both operands are the first
             Union m1 _ -> let (c1, d1) = toRhs m1 in ("(" <> c1 <> ") + (" <> c1 <> ")", d1 ++ d1)
             Aux f1 nt1 ->
               let nm = arityName f1 (promoteNtr envT (primaryNtrOfNtr envT (fst nt1)))

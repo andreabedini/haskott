@@ -75,8 +75,11 @@ prepareProvers merge targets inputs spec grammarNonterminals = do
   axs <- auxfnTypes spec
   let auxfnNames = Set.size (Set.fromList (map fst (specAuxfns spec)))
       possibleNtrs = length [() | r <- specRules spec, _ <- ruleNames r]
+      -- the checker's graphs: a vertex per auxiliary function (typing
+      -- them) and one per nonterminal root (trivial cycles)
       c0 = auxfnNames + possibleNtrs
       step (acc, c) t = let (d, c') = computeDependencies spec t c in (acc ++ [(t, d)], c')
+      -- Ott computes the dependencies for ascii too, and its vertices count
       (deps, c1) = foldl' step ([], c0) ("ascii" : map targetName targets)
       structure = collapsedStructure inputs (structureOf spec axs)
   unless merge $ forM_ deps $ \(_, d) -> checkStructure spec (depGraphNontran d) structure
@@ -560,6 +563,7 @@ ppStructEntryX env envX processed e = do
     EntryFvs xs -> do
       let fvs = [fv | (n, ntr, that) <- xs, fv <- take 1 [f | f <- specFreevars (envSpec env), fvName f == n, fvThis f == ntr, fvThat f == that]]
       funcs <- ppFreevars env fvs
+      -- the functions add library functions, which Ott prints first
       lib' <- ppLibrary env
       (lib' <>) . printWithComment env "\n" "free variables" . (locs (map fvRange fvs) <>) <$> compute env funcs
     EntrySbs xs -> do
@@ -641,6 +645,7 @@ renameDeps mvr ntr d =
   Deps
     { depTs = map (map root) (depTs d)
     , depGraph = [(root a, map root bs) | (a, bs) <- depGraph d]
+    -- from depGraph, as Ott's rename_dependencies does
     , depGraphNontran = [(root a, map root bs) | (a, bs) <- depGraph d]
     }
   where

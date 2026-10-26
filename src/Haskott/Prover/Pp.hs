@@ -2,7 +2,7 @@
 
 -- | The prover half of Ott's @grammar_pp.ml@: the types of the grammar
 -- (metavariable declarations, rules and their productions), and symbolic
--- terms as prover terms, for Coq, Isabelle, HOL, Lem and OCaml.
+-- terms as prover terms, for Coq, Isabelle, HOL, Lem, OCaml and Twelf.
 --
 -- Printing a term can have effects in Coq (a projection from a list
 -- becomes a hypothesis, named by a counter), so the term printers are in
@@ -659,9 +659,8 @@ ppNominalProd env p =
       printed = [mconcat ["\\<guillemotleft>" <> b <> "\\<guillemotright>" | Just b <- map (ppElement env [] False) bl] <> s | (bl, el) <- anp, Just s <- [ppElement env [] False el]]
    in T.unwords (prodName p : ["\"" <> s <> "\"" | s <- printed]) <> ppComEs env (prodHoms p) (prodElements p)
 
--- | Ott's @pp_rule@ for a prover; the Coq one also queues the rule's
--- decidable equality lemma.
--- | Ott's @pp_rule@ for a prover, after the rule's location.
+-- | Ott's @pp_rule@ for a prover, after the rule's source location at
+-- @-output_source_locations 2@.
 ppRule :: Env -> Rule -> P (Maybe Text)
 ppRule env r = fmap (located <>) <$> ppRuleBody env r
   where
@@ -669,6 +668,8 @@ ppRule env r = fmap (located <>) <$> ppRuleBody env r
       "" -> ""
       l -> "\n" <> l
 
+-- | The rule itself; the Coq one also queues the rule's decidable equality
+-- lemma in 'psCoqBuffer'.
 ppRuleBody :: Env -> Rule -> P (Maybe Text)
 ppRuleBody env r = do
   let com = ppComStrings env (ruleHoms r) [ppNontermWithSie env [] (ruleName r, [])]
@@ -1182,6 +1183,8 @@ ppMse env sie de isaListNameFlag prodNm ntmvro mse = case mse of
     let ntrp = ppNontermrootTy env (promoteNtr env (primaryNtrOfNtr env (fst nt)))
     pure ("(" <> auxfnName f ntrp ntrp <> " " <> ppNontermWithSie env sie nt <> ")", [], [])
   AuxList f nt b -> ppMseAuxList env sie de isaListNameFlag prodNm ntmvro f nt b
+  -- Ott binds Isabelle's and Coq's operands with let, left to right, and
+  -- concatenates the others with ^, right to left
   Union m1 m2 -> case envTarget env of
     Isa -> do
       (s1, d1, f1) <- ppMse env sie de isaListNameFlag prodNm ntmvro m1

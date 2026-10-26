@@ -3,8 +3,8 @@
 -- | Ott's @substs_pp.ml@: the auxiliary functions of binding
 -- specifications, the substitutions and free-variable functions declared
 -- in @substitutions@ and @freevars@ sections, and the library functions
--- they use (@list_mem@, @list_minus@, @list_assoc@, ...), for Coq,
--- Isabelle, HOL, Lem and OCaml.
+-- they use (@list_mem@, @list_minus@, @list_assoc@, ...), for every
+-- prover target.
 --
 -- A substitution or free-variable function is defined over every rule
 -- that needs one: those with a production that is the variable itself,
@@ -12,9 +12,6 @@
 -- its canonical term; a nonterminal under a binder gets the binder's names
 -- removed (Ott's \"glommed bound things\"). Under Isabelle with primrec,
 -- the lists and tuples of a list form become functions of their own.
---
--- Not implemented: @-coq_expand_list_types true@ (the list types Ott then
--- generates for Coq) and locally nameless Coq.
 module Haskott.Prover.Substs
   ( ppAuxfns
   , ppSubsts
