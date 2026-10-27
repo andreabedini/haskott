@@ -31,10 +31,8 @@ import System.FilePath (joinPath, splitDirectories, (</>))
 main :: IO ()
 main = do
   ottDir <- fromMaybe "../ott" <$> lookupEnv "HASKOTT_OTT"
-  reportDir <- fromMaybe "../haskell-2010-revised-report/formalisation" <$> lookupEnv "HASKOTT_REPORT_OTT"
   let resolve rel = case splitDirectories rel of
         ("ott" : more) -> ottDir </> joinPath more
-        ("haskell-report-ott" : more) -> reportDir </> joinPath more
         _ -> rel
   table <- TIO.readFile "test/ott-acceptance.tsv"
   let rels = [T.unpack (T.drop 1 rest) | l <- T.lines table, not ("#" `T.isPrefixOf` l), not (T.null l), let (_, rest) = T.breakOn "\t" l]

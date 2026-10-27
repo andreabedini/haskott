@@ -17,6 +17,10 @@ extra-doc-files:
     GRAMMAR.md
 extra-source-files:
     test/ott-acceptance.tsv
+    test/first-diagnostics.tsv
+    test/extensions/*.ott
+    test/extensions/*.typ
+    test/extensions/*.tex
     scripts/ott-acceptance.zsh
 
 common warnings
@@ -160,6 +164,20 @@ test-suite recovery
         text,
         graft,
         haskott
+
+test-suite extensions
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    default-language: GHC2021
+    main-is:          Extensions.hs
+    build-tool-depends: haskott:haskott
+    build-depends:
+        base,
+        bytestring,
+        directory,
+        filepath,
+        process
 
 test-suite lsp
     import:           warnings

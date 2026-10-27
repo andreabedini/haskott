@@ -2,10 +2,12 @@
 
 This document specifies the syntax of Ott source files (`.ott`) in enough detail
 to reimplement a compatible parser from scratch, and in enough detail to work
-out why a given file is rejected. The reference implementation is
-Ott 0.34 with `typst` homs and embeds and quoted elements in productions
-(§3.4): `src/grammar_lexer.mll`, `src/grammar_parser.mly`, and the rule-body
-processing in `src/defns.ml`.
+out why a given file is rejected. The reference implementation is Ott 0.34:
+`src/grammar_lexer.mll`, `src/grammar_parser.mly`, and the rule-body
+processing in `src/defns.ml` in Ott's repository. haskott reads the same
+language; where it gives a construct a meaning Ott does not (quoted
+elements, §3.4; `typst` homs, which are ordinary homs to this grammar) the
+text says so.
 Ott's own manual says of this grammar only that "the lexing of Ott source files
 is context-dependent; this does not show that". This document shows it.
 
@@ -405,12 +407,15 @@ are three distinct tokens because `elements` mode lexes them so.
 A `string` element whose spelling starts with `'` and has at least two
 characters (`'in'`, `'::'`, `'..'`) is a **quoted element**. Its dequoted
 content (§2.2; `'foo` without a closing quote is a quoted element whose
-content is `'foo`) is what is matched in terms; stage two treats it as a
-terminal unless the
-content is exactly a declared metavariable or nonterminal root. The purpose is
-to write terminals such as `in`, which would otherwise lex in terms as the
-metavariable `i` with suffix `n`, and `..`, which would otherwise be a dot
-form. In this grammar it is simply a `string` with a flag.
+content is `'foo`) is what is matched in terms. Ott keeps nothing but that
+content: a quoted element is then read like any other identifier, so `'in'`
+with a metavariable `i` and an index variable `n` is that metavariable with
+suffix `n`, and quoting only serves to write an Ott keyword such as `in` or
+`..` as an element at all. haskott keeps the quoting as a flag and, in stage
+two, treats a quoted element as a terminal unless its content is exactly a
+declared metavariable or nonterminal root, so `'in'` is the terminal `in`.
+A file that relies on this is not a stock Ott file. In this grammar it is
+simply a `string` with a flag.
 
 ### 3.5 Binding specifications
 
@@ -455,8 +460,8 @@ error and `{{ com }}` and `{{com }}` are accepted. The name is a `string` in
 `hom` mode, so it may contain `-` (`coq-equality`, `tex-preamble`,
 `repr-locally-nameless`). Names have no syntax of their own; which names mean
 what is a matter for the checker and the back ends (the corpus uses `com`,
-`tex`, `typst`, `coq`, `isa`, `hol`, `lem`, `ocaml`, `lex`, the `*var` family
-and a dozen more).
+`tex`, `coq`, `isa`, `hol`, `lem`, `ocaml`, `lex`, the `*var` family and a
+dozen more; `typst` is haskott's).
 
 Inside `[[ ]]` the identifiers are nonterminals and metavariables with suffixes
 (`t1`, `x`, `t'`) or, for locally nameless homs, several of them (`[[x t1]]`);
@@ -704,11 +709,15 @@ law still holds for the whole file.
 
 ## 8. Corpus
 
-Ott's repository ships 119 `.ott` files under `tests/` and 39 under
-`examples/`, and the report's formalisation has `ott/expressions.ott`. All
-three are the acceptance corpus (`test/ott-acceptance.tsv`): a file is
-accepted by haskott if and only if Ott accepts it, and for accepted files
-the number of rules, productions and definitions agree. Of the constructs
+Ott 0.34 ships 116 `.ott` files under `tests/` and 38 under `examples/`.
+They are the acceptance corpus. `test/ott-acceptance.tsv` records Ott's
+verdict on each: `accepted`, `other-error` (Ott parses the file and rejects
+it later) or `parse-error`. haskott must parse every file of the first two
+classes and render it back byte for byte, and reject every file of the
+third; `test/first-diagnostics.tsv` records the first problem it reports
+for each. The differential (`haskott-differential`) then compares the parse
+itself, the checked specification, every term parse and the TeX and prover
+output with Ott's on every file Ott parses. Of the constructs
 in §3, `contextrules`, `distinctnames`, `begincoqsection`, `endcoqsection`
 and `coqvariable` appear in no corpus file, `names` only commented out
 (`tests/binding.4.ott`), and `funs` in one (`examples/ocaml_light/funex.ott`);

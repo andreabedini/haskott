@@ -2,22 +2,17 @@
 -- | The acceptance corpus (GRAMMAR.md §8).
 --
 -- @test/ott-acceptance.tsv@ records, for every @.ott@ file in Ott's
--- @tests/@ and @examples/@ directories and for the Haskell report's
--- @expressions.ott@, what Ott 0.34 did with it: @accepted@,
--- @other-error@ (parsed, then failed later), or @parse-error@. It is
--- produced by @scripts/ott-acceptance.zsh@. This suite checks that haskott
--- parses exactly the files Ott parses, and that rendering a parsed file
--- gives the input back, before and after the rule lines are parsed as
+-- @tests/@ and @examples/@ directories, what Ott 0.34 did with it:
+-- @accepted@, @other-error@ (parsed, then failed later), or @parse-error@.
+-- It is produced by @scripts/ott-acceptance.zsh@. This suite checks that
+-- haskott parses exactly the files Ott parses, and that rendering a parsed
+-- file gives the input back, before and after the rule lines are parsed as
 -- terms, and that the first problem @haskott check@ reports for each file
 -- is still the one in @test/first-diagnostics.tsv@. 'inlineCases' cover
 -- what the corpus does not exercise.
 --
--- Paths in the table start with @ott/@ or @haskell-report-ott/@. Those
--- prefixes name the checkout of ott and the formalisation of the report,
--- found at @../ott@ and @../haskell-2010-revised-report/formalisation@ by
--- default, or where @HASKOTT_OTT@ and @HASKOTT_REPORT_OTT@ point. The
--- second prefix is the formalisation's old repository name, kept as a
--- label.
+-- Paths in the table start with @ott/@, which names the checkout of
+-- upstream Ott, found at @../ott@ by default or where @HASKOTT_OTT@ points.
 module Main (main) where
 
 import Control.Monad (forM, unless)
@@ -44,10 +39,8 @@ data Expectation = ShouldParse | ShouldFail
 main :: IO ()
 main = do
   ottDir <- fromMaybe "../ott" <$> lookupEnv "HASKOTT_OTT"
-  reportDir <- fromMaybe "../haskell-2010-revised-report/formalisation" <$> lookupEnv "HASKOTT_REPORT_OTT"
   let resolve rel = case splitDirectories rel of
         ("ott" : more) -> ottDir </> joinPath more
-        ("haskell-report-ott" : more) -> reportDir </> joinPath more
         _ -> rel
   table <- TIO.readFile "test/ott-acceptance.tsv"
   let entries =

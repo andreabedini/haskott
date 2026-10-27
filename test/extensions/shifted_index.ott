@@ -1,0 +1,21 @@
+% Shifted indices: e_n-1 in a dot form whose bound is (1..n).  Only TeX,
+% Typst and ASCII output support them.
+metavar x ::= {{ lex alphanum0 }}
+metavar K ::= {{ lex Alphanum }}
+indexvar index, i, n ::=
+grammar
+e :: 'E_' ::=
+  | x :: :: Var
+  | K :: :: Con
+  | ( e1 $ e2 ) :: :: App
+formula :: 'formula_' ::=
+  | judgement :: :: judgement
+  | e = e' :: :: eq
+  | formula1 .. formulan :: :: dots
+defns J :: '' ::=
+defn e1 === e2 :: :: eq :: '' by
+
+  e_0 = K
+  e_1 = ( e_0 $ x_1 ) .. e_n = ( e_n-1 $ x_n )
+  ----------------- :: rec
+  K === e_n

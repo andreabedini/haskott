@@ -1,0 +1,17 @@
+% A quoted token in a production is a terminal, even when it would lex as
+% a metavar with a suffix: 'in' is not the metavar i with suffix n.
+metavar x ::= {{ lex alphanum0 }}
+metavar integer, i ::= {{ lex numeral }}
+indexvar index, n ::=
+grammar
+e :: 'E_' ::=
+  | x :: :: Var
+  | i :: :: Int
+  | let x = e 'in' e' :: :: Let
+formula :: 'formula_' ::=
+  | judgement :: :: judgement
+defns J :: '' ::=
+defn e1 === e2 :: :: eq :: '' by
+
+  ----------------- :: let
+  let x = i in x === i

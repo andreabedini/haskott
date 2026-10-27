@@ -99,7 +99,7 @@ prod p =
 element :: Element -> Text
 element e = case e of
   EIdent s -> s
-  EQuoted s -> "'" <> s <> "'"
+  EQuoted s -> s -- dequoted, as Ott prints it: the quoting is a flag, not text
   EDots n -> " " <> dots n <> " "
   EComp es mi b ->
     "</ " <> T.intercalate " " (map element es) <> "// "
