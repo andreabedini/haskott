@@ -824,8 +824,8 @@ isaFancySyntaxClauseForProd env p = case isaFancySyntaxHomForProd env p of
 -- | Ott's @isa_fancy_syntax_clause_for_defn@: the syntax and translation
 -- clauses of a definition with fancy syntax.
 isaFancySyntaxClauseForDefn :: Env -> Text -> Text -> Text -> P (Maybe (Text, Text))
-isaFancySyntaxClauseForDefn env dcName dcWrapper dName = do
-  let pn = dcWrapper <> dName
+isaFancySyntaxClauseForDefn env clsName clsWrapper defnNm = do
+  let pn = clsWrapper <> defnNm
       p = prodOfProdname env pn
   case isaFancySyntaxHomForProd env p of
     Nothing -> pure Nothing
@@ -833,7 +833,7 @@ isaFancySyntaxClauseForDefn env dcName dcWrapper dName = do
       let ss = [s | Just s <- map (ppElement env [] False) (prodElements p)]
           ty = T.concat [s <> " => " | s <- ss] <> " bool"
           syntaxPart = "  \"" <> pn <> "'\"" <> " :: " <> "\"" <> ty <> "\" " <> "(\"" <> T.concat (applyHomSpec env hs (replicate arity "_")) <> "\" " <> prec <> ")"
-          stnb = canonicalNode dcName p
+          stnb = canonicalNode clsName p
       plain <- ppSymtermElementJudgeIsaPlain env [] deEmpty p stnb
       fancy <- ppSymtermElementJudgeIsaFancy env [] deEmpty hs p stnb
       pure (Just (syntaxPart, "  \"" <> fancy <> " == " <> plain <> "\""))
@@ -1309,37 +1309,40 @@ isaPrimrecAuxList env isaListNameFlag prodNm ntmvro f ntrp de1i = do
       ntrpn = ppNontermrootTy env ntrp
       idList = auxfnName f ntrpn (args <> "_list") <> splitSuffix
       listPatterns = splitParensCommas (de1Pattern de1i)
+      -- the tuple function and its auxiliaries for the argument types tl,
+      -- their patterns and their nonterminals (lists of one length); a
+      -- single argument needs no tuple
       makeTuple tl pattern ntmvsns =
         let argsList = map tyOf ntmvsns
-            idTuple
+            tupleId
               | length argsList == 1 = auxfnName f ntrpn (T.intercalate "_" argsList)
               | otherwise = auxfnName f ntrpn (T.intercalate "_" argsList) <> splitSuffix
-            funcTuple
-              | length ntmvsns == 1 = []
-              | otherwise =
-                  let tt = if length tl == 2 then "(" <> T.intercalate "*" tl <> ")" else "(" <> head tl <> "*(" <> T.intercalate "*" (tail tl) <> "))"
-                      lhsTl = T.concat (tail pattern)
-                      lhs = if length pattern == 2 then "(" <> T.intercalate "," pattern <> ")" else "(" <> head pattern <> "," <> lhsTl <> ")"
-                      ntrs = [(y, p) | (((Ntr y, _), _), p) <- if length ntmvsns == 2 then zip ntmvsns pattern else [(head ntmvsns, head pattern)]]
-                      defTypes = maybe [] fst (lookup f (envAuxfnTypes env))
-                      interesting = [(n, p) | (n, p) <- ntrs, primaryNtrOfNtr env n `elem` defTypes]
-                      tupleDeps = [auxfnName f n n | (n, _) <- interesting]
-                      tmp = T.intercalate (listAppend env) ["(" <> auxfnName f n n <> " " <> p <> ")" | (n, p) <- interesting]
-                      calc = if length ntrs == 1 then tmp else "(" <> tmp <> ")"
-                      (rhs, auxTupleFuncs, deps)
-                        | length tl == 2 = (calc, [], tupleDeps)
-                        | otherwise =
-                            let (idAux, aux) = makeTuple (tail tl) (tail pattern) (tail ntmvsns)
-                             in ("(" <> calc <> ")" <> listAppend env <> "(" <> idAux <> " " <> lhsTl <> ")", aux, idAux : tupleDeps)
-                   in IntFunc
-                        { rFunId = idTuple
-                        , rFunDep = deps
-                        , rFunType = tt <> splitSuffix
-                        , rFunHeader = (idTuple <> " :: \"" <> tt <> " => " <> outputTyp <> "\"\n", "", "")
-                        , rFunClauses = [("", lhs, rhs)]
-                        }
-                        : auxTupleFuncs
-         in (idTuple, funcTuple)
+            tupleFuncs = case (tl, pattern, ntmvsns) of
+              (t1 : tlRest@(_ : _), p1 : patRest@(_ : _), n1 : ntRest@(_ : _)) ->
+                let tt = if length tl == 2 then "(" <> T.intercalate "*" tl <> ")" else "(" <> t1 <> "*(" <> T.intercalate "*" tlRest <> "))"
+                    lhsTl = T.concat patRest
+                    lhs = if length pattern == 2 then "(" <> T.intercalate "," pattern <> ")" else "(" <> p1 <> "," <> lhsTl <> ")"
+                    ntrs = [(y, p) | (((Ntr y, _), _), p) <- if length ntmvsns == 2 then zip ntmvsns pattern else [(n1, p1)]]
+                    defTypes = maybe [] fst (lookup f (envAuxfnTypes env))
+                    interesting = [(n, p) | (n, p) <- ntrs, primaryNtrOfNtr env n `elem` defTypes]
+                    tupleDeps = [auxfnName f n n | (n, _) <- interesting]
+                    tmp = T.intercalate (listAppend env) ["(" <> auxfnName f n n <> " " <> p <> ")" | (n, p) <- interesting]
+                    calc = if length ntrs == 1 then tmp else "(" <> tmp <> ")"
+                    (rhs, auxTupleFuncs, deps)
+                      | length tl == 2 = (calc, [], tupleDeps)
+                      | otherwise =
+                          let (idAux, aux) = makeTuple tlRest patRest ntRest
+                           in ("(" <> calc <> ")" <> listAppend env <> "(" <> idAux <> " " <> lhsTl <> ")", aux, idAux : tupleDeps)
+                 in IntFunc
+                      { rFunId = tupleId
+                      , rFunDep = deps
+                      , rFunType = tt <> splitSuffix
+                      , rFunHeader = (tupleId <> " :: \"" <> tt <> " => " <> outputTyp <> "\"\n", "", "")
+                      , rFunClauses = [("", lhs, rhs)]
+                      }
+                      : auxTupleFuncs
+              _ -> []
+         in (tupleId, tupleFuncs)
       (idTuple, funcTuple) = makeTuple typList listPatterns (de1Ntmvsns de1i)
       hide = hideIsaTrailingUnderscore env
       listFunc =
