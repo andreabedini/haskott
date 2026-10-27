@@ -18,6 +18,7 @@ module Main (main) where
 import Control.Monad (foldM, forM, forM_, unless, when)
 import qualified Data.ByteString as B
 import Data.List (isSuffixOf)
+import Data.Version (showVersion)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
@@ -41,6 +42,7 @@ import Haskott.Term.Symterm (ppPlainSymterm)
 import Haskott.Tex
 import Haskott.Prover
 import Haskott.Term.Grammar (nonterminalCount)
+import Paths_haskott (version)
 import Server (serverMain)
 import System.Environment (getArgs)
 import System.Exit (ExitCode (..), exitFailure, exitWith)
@@ -112,6 +114,7 @@ main = do
         Left e -> reportLoadError e >> exitFailure
         Right l -> mapM_ TIO.putStrLn (renameableRoots (ldSpec l))
     [h] | h `elem` ["help", "-help", "--help"] -> putStr usage
+    [v] | v `elem` ["version", "-version", "--version"] -> putStrLn ("haskott " ++ showVersion version)
     (('-' : _) : _) -> ottMain args
     _ -> hPutStr stderr usage >> exitFailure
 
@@ -131,6 +134,7 @@ usage =
     , "       haskott structure FILE...           the entries of the prover output, in order"
     , "       haskott parse FILE ':root: text'    every parse of a term, as ott -parse prints them"
     , "       haskott help                        this text"
+    , "       haskott --version                   the version"
     , ""
     , "OUT ends in .tex, .typ, .v, .thy, .sml, .lem, .ml or .twf. OPTION is one of Ott's:"
     , "-picky_multiple_parses, -merge, -output_source_locations, -signal_parse_errors,"
