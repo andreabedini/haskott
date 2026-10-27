@@ -1,7 +1,8 @@
 # Ott source grammar reference
 
 This document specifies the syntax of Ott source files (`.ott`) in enough detail
-to reimplement a compatible parser from scratch. The reference implementation is
+to reimplement a compatible parser from scratch, and in enough detail to work
+out why a given file is rejected. The reference implementation is
 Ott 0.34 with `typst` homs and embeds and quoted elements in productions
 (§3.4): `src/grammar_lexer.mll`, `src/grammar_parser.mly`, and the rule-body
 processing in `src/defns.ml`.
@@ -20,11 +21,13 @@ Ott parses a specification in two stages, and so does haskott:
   each rule line, each function clause and each `[[ ... ]]` quotation is lexed
   with a lexer derived from the grammar (terminals are inferred from the
   productions, identifiers split into a declared root and a suffix) and parsed
-  against it. That language is specified separately.
+  against it. There is no separate specification of that language; haskott's
+  `Haskott.Term.Grammar` follows Ott's `src/new_term_parser.ml` construct by
+  construct and its header is the closest thing to one.
 
-Sections 1–5 specify the language. Section 6 records the parts of the reference
-implementation that a reimplementation must reproduce but that are not visible
-in the grammar. Section 7 says what haskott's lossless tree keeps that Ott
+Sections 1–5 specify the language. Section 6 is a checklist of the parts of the
+reference implementation that a reimplementation must reproduce but that are
+not visible in the grammar. Section 7 says what haskott's lossless tree keeps that Ott
 discards.
 
 ---
@@ -232,6 +235,10 @@ Blanks are preserved as tokens because the body is output verbatim.
 `{{` as ordinary characters, and with `*` as a one-character `STRING` so that
 `*}}` can be recognised by longest match.
 
+Longest match applies here too: ` *</` is `COMP_LEFT` only when the string
+rule does not match more, so `[[ </ x_i // i /> ]]` opens a comprehension
+and `[[</x_i//i/>]]` lexes `</x_i//i/>` as one `STRING`.
+
 A hom's text is therefore split into runs separated at brackets, braces, dots
 and whitespace, and the original text is recovered by concatenation. The split
 exists so that `[[x]]` lexes as `[[`, `x`, `]]` without spaces around it.
@@ -273,7 +280,8 @@ A line's token is decided by its shape:
 | `nnws*` `%` … `newline` | `COMMENTLINE` (text includes the newline) |
 | `nnws*` `%` … end of input | `EOF` |
 | `nnws*` `>>` `nnws*` `newline` | begins a block comment (§2.10); lexing resumes in `defnlang` immediately after the closing `<<`, which need not be at a line start |
-| `nnws*` `----` `-*` *rest* (`newline` or end of input) | `LINELINE` (dashes, rest, terminator) |
+| `nnws*` `----` `-*` *rest* (`newline` or end of input), *rest* non-empty | `LINELINE` (dashes, rest, terminator). Longest match gives the dashes to the annotation one at a time until *rest* is non-empty: a line of exactly `----` is a `LINE`; `-----` alone is a `LINELINE` whose *rest* is `-`, which then fails to parse as an annotation (§4) |
+| `nnws+` end of input | `LINE` (whitespace only, no terminator) |
 | any other non-empty line | see below |
 | end of input | `EOF` |
 
@@ -394,9 +402,11 @@ elements are separated by nothing (`..`), by the previous element repeated
 (`...`), or the longer form (`....`). Stage two gives them meaning. Here they
 are three distinct tokens because `elements` mode lexes them so.
 
-A `string` element whose spelling was quoted (`'in'`, `'::'`, `'..'`) is a
-**quoted element**. Its dequoted content
-is what is matched in terms; stage two treats it as a terminal unless the
+A `string` element whose spelling starts with `'` and has at least two
+characters (`'in'`, `'::'`, `'..'`) is a **quoted element**. Its dequoted
+content (§2.2; `'foo` without a closing quote is a quoted element whose
+content is `'foo`) is what is matched in terms; stage two treats it as a
+terminal unless the
 content is exactly a declared metavariable or nonterminal root. The purpose is
 to write terminals such as `in`, which would otherwise lex in terms as the
 metavariable `i` with suffix `n`, and `..`, which would otherwise be a dot
@@ -424,8 +434,8 @@ mse       ::= ident
 
 `union` is right-associative. Several `(+ … +)` groups may follow one
 production; they are concatenated. The `names` and `distinctnames` forms are
-parsed but not supported by Ott's back ends; one corpus file has them commented
-out.
+parsed but not supported by Ott's back ends; one corpus file has `names`
+commented out and none uses `distinctnames`.
 
 ### 3.6 Homomorphisms
 
@@ -445,11 +455,8 @@ error and `{{ com }}` and `{{com }}` are accepted. The name is a `string` in
 `hom` mode, so it may contain `-` (`coq-equality`, `tex-preamble`,
 `repr-locally-nameless`). Names have no syntax of their own; which names mean
 what is a matter for the checker and the back ends (the corpus uses `com`,
-`tex`, `typst`, `coq`, `isa`, `hol`, `lem`, `ocaml`, `ich`, `ichl`, `icho`,
-`ic`, `lex`, `texvar`, `typstvar`, `isavar`, `holvar`, `lemvar`, `ocamlvar`,
-`coq-equality`, `phantom`, `aux`, `quotient-remove`, `quotient-with`,
-`menhir-start`, `menhir-prec`, `ocamllex`, `pp`, `pp-raw`, `tex-preamble`,
-`isasyn`, `isaprec`, `coq-universe`, `repr-locally-nameless`, and others).
+`tex`, `typst`, `coq`, `isa`, `hol`, `lem`, `ocaml`, `lex`, the `*var` family
+and a dozen more).
 
 Inside `[[ ]]` the identifiers are nonterminals and metavariables with suffixes
 (`t1`, `x`, `t'`) or, for locally nameless homs, several of them (`[[x t1]]`);
@@ -632,9 +639,10 @@ structure, hom structure) is fully determined in stage one.
   `subrules`, `contextrules`, `substitutions`, `freevars`, `parsing`, `defns`,
   `funs`, `begincoqsection`, `endcoqsection` or `coqvariable` ends the
   definition. There is no escape.
-* **Dashed lines are recognised anywhere** in `defnlang`: a line beginning
-  with four or more `-` (after whitespace) is always a `LINELINE`, so a premise
-  cannot begin with `----`.
+* **Dashed lines are recognised anywhere** in `defnlang`: a line of four or
+  more `-` (after whitespace) followed by anything is a `LINELINE`, so a
+  premise cannot begin with `----`. The one exception is a line of exactly
+  `----` and nothing else, which is a `LINE` (§2.9).
 * **`{{ com` at a line start inside a definition** is a comment block even if
   it was meant as the start of a premise.
 * **`by` must end its line.** See §4.
@@ -652,10 +660,10 @@ structure, hom structure) is fully determined in stage one.
 
 ## 7. The lossless tree
 
-haskott's parser builds a lossless tree (graft green tree; see the decision
-"one graft green tree for Ott source and symbolic terms" in the project's
-Hindsight bank) directly from the rules above, and the checked specification
-is a projection of it. The tree holds every character of the input:
+haskott's parser builds a lossless tree (a graft green tree, in which
+whitespace and comments are tokens) directly from the rules above, and the
+checked specification is a projection of it. The tree holds every character
+of the input:
 
 * Every interstitial of §2 is a trivia token: `Space` (a run of `nnws`),
   `Newline`, `LineComment` (`%` to end of line, newline excluded), and
@@ -667,14 +675,15 @@ is a projection of it. The tree holds every character of the input:
   terminator is a `Newline`, a `BLANKLINE` is `Space`? `Newline`, a
   `COMMENTLINE` is `Space`? `LineComment` `Newline`, and a `LINELINE` is a
   `Dashes` token followed by the tokens of its annotation lexed in `metalang`.
-* Placement follows latti-parsing's rules: a node spans from its first to its
-  last syntax token; an item (metavar declaration, rule, production, defn,
-  rule in a body, clause) also owns the whitespace directly in front of it on
-  its line and the trivia to the end of its last line; all other trivia belongs
-  to the innermost node whose span contains it, so comment lines between two
-  productions are siblings in the rule node; comment lines after the last
-  production of a rule, indented past the rule's first column, stay with the
-  rule (Rule 2). No node is given the comment lines above it.
+* Placement follows two rules. A node spans from its first to its last
+  syntax token. An item (metavar declaration, rule, production, defn, rule
+  in a body, clause) also owns the whitespace directly in front of it on
+  its line and the trivia to the end of its last line; and, by the
+  *indentation rule*, the comment lines after it that are indented past
+  its first column, with the blank lines between them, stay with it. All
+  other trivia belongs to the innermost node whose span contains it, so
+  comment lines between two productions are siblings in the rule node, and
+  no node is given the comment lines above it.
 * Node shapes: a `Premise`, `Conclusion`, `Formula` or `Clause` is
   `Space? Line`; a `RuleLine` is `Space? Dashes` followed by the annotation's
   tokens; a `DefnCom` is `Space? HomOpen Space? HomText("com")` followed by
@@ -682,7 +691,7 @@ is a projection of it. The tree holds every character of the input:
   `HomRef` are tight on both sides: the trivia around them belongs to their
   parent.
 * In a definition body the comment lines that follow a rule, with or without
-  blank lines between, are placed by Rule 2 like everywhere else: those
+  blank lines between, are placed by the indentation rule like everywhere else: those
   indented past the rule's first line stay with the rule, the others belong
   to the definition. Ott's grammar makes a comment line directly after the
   conclusion part of the same block, but the tree does not record blocks.
@@ -695,27 +704,12 @@ law still holds for the whole file.
 
 ## 8. Corpus
 
-Ott's repository ships 125 `.ott` files under `tests/` and 39 under
-`examples/`, and the report's formalisation has `ott/expressions.ott`. All three are
-the acceptance corpus: a file is accepted by haskott if and only if Ott 0.34
-accepts it, and for accepted files the number of rules, productions and
-definitions agree. Construct usage across `tests/` and `examples/` (files
-containing it), measured 2026-10-17:
-
-| construct | files | | construct | files |
-|---|---|---|---|---|
-| `grammar` | 167 | | `embed` | 41 |
-| `metavar` | 110 | | `freevars` | 26 |
-| `defn` | 114 | | `>>` block comments | 21 |
-| `defns` | 106 | | `parsing` | 15 |
-| `fun` (as a word) | 105 | | `</` comprehensions | 13 |
-| `indexvar` | 67 | | `homs` sections | 10 |
-| `(+` bindspecs | 67 | | `....` | 10 |
-| `subrules` / `<::` | 63 / 62 | | `_::` | 10 |
-| `substitutions` | 62 | | `funs` | 2 |
-| quoted identifiers | 126 | | `names(` | 2 (commented out) |
-| `...` | 36 | | `contextrules` | 0 (manual only) |
-| | | | `begincoqsection` etc. | 0 |
-
-Production categories seen: `M` (162 productions), `I` (47), `S` (39), `L`
-(31), `JT` (27), `M I` (18), `L I` (15), `J` (7).
+Ott's repository ships 119 `.ott` files under `tests/` and 39 under
+`examples/`, and the report's formalisation has `ott/expressions.ott`. All
+three are the acceptance corpus (`test/ott-acceptance.tsv`): a file is
+accepted by haskott if and only if Ott accepts it, and for accepted files
+the number of rules, productions and definitions agree. Of the constructs
+in §3, `contextrules`, `distinctnames`, `begincoqsection`, `endcoqsection`
+and `coqvariable` appear in no corpus file, `names` only commented out
+(`tests/binding.4.ott`), and `funs` in one (`examples/ocaml_light/funex.ott`);
+every other construct is exercised.
