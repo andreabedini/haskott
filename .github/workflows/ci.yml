@@ -17,11 +17,8 @@ name: CI
 # --ref BRANCH`) makes every artifact of a release, in dist, without
 # releasing: release runs only on a push to main.
 #
-# graft, the tree library haskott is built on, is not on Hackage:
-# cabal.project pins it as a source-repository-package, which cabal counts
-# among the project's packages, so "all" would release it too. sdist and
-# docs name haskott instead. The test suites read the tests and examples of
-# upstream Ott 0.34, which build checks out next to the sources.
+# The test suites read the tests and examples of upstream Ott 0.34, which
+# build checks out next to the sources.
 
 on:
   workflow_dispatch:
@@ -258,8 +255,7 @@ jobs:
   # tarball for Hackage (`cabal upload --documentation`), which the release
   # publishes, and the documentation of the whole project from cabal
   # haddock-project, which the pages job publishes. Both link to the
-  # documentation of the dependencies on Hackage; haddock-project documents
-  # graft too, so the links to its types resolve.
+  # documentation of the dependencies on Hackage.
   docs:
     name: docs
     runs-on: ubuntu-latest
