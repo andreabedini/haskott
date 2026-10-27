@@ -96,7 +96,8 @@ executable haskott
     hs-source-dirs:   app
     default-language: GHC2021
     main-is:          Main.hs
-    other-modules:    Server
+    other-modules:    Server Paths_haskott
+    autogen-modules:  Paths_haskott
     ghc-options:      -threaded
     build-depends:
         base,
