@@ -16,11 +16,14 @@ license:         BSD-3-Clause
 license-file:    LICENSE
 author:          Andrea Bedini
 maintainer:      andrea@bedini.au
+homepage:        https://github.com/andreabedini/haskott
+bug-reports:     https://github.com/andreabedini/haskott/issues
 build-type:      Simple
-tested-with:     GHC ==9.12.2
+tested-with:     GHC ==9.12.2 || ==9.14.1
 extra-doc-files:
     README.md
     GRAMMAR.md
+    CHANGELOG.md
 extra-source-files:
     test/ott-acceptance.tsv
     test/first-diagnostics.tsv
@@ -153,6 +156,7 @@ test-suite rename-sweep
         base,
         bytestring,
         containers,
+        directory,
         filepath,
         text,
         haskott

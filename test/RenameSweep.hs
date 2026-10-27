@@ -22,6 +22,7 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import Haskott.Load (Loaded (..), loadSpec)
 import Haskott.Rename
+import System.Directory (doesDirectoryExist)
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import System.FilePath (joinPath, splitDirectories, (</>))
@@ -48,7 +49,9 @@ main = do
         , ["haskell-report-ott/ott/style.ott", "haskell-report-ott/ott/expressions.ott"]
         , ["haskell-report-ott/doc/report.src.typ"]
         )
-      cases = [(f, [f], []) | f <- accepted] ++ [report]
+  hasReport <- doesDirectoryExist (reportDir </> "ott")
+  unless hasReport (putStrLn ("report not found at " ++ reportDir ++ "; skipped"))
+  let cases = [(f, [f], []) | f <- accepted] ++ [report | hasReport]
   results <- forM cases $ \(label, specs, docs) -> do
     specTexts <- mapM (\f -> (,) f <$> readText (resolve f)) specs
     docTexts <- mapM (\f -> (,) f <$> readText (resolve f)) docs

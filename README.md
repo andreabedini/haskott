@@ -49,13 +49,46 @@ in its `formalisation` directory. The section
 [Differences from Ott](#differences-from-ott) says what haskott adds, what
 it leaves out, and where it behaves differently.
 
-## Building
+## Install
 
-haskott depends on a sibling checkout of graft, which is not on Hackage;
-`cabal.project` fixes the layout:
+### Pre-built binaries
+
+Download the archive for your platform from the
+[latest release](https://github.com/andreabedini/haskott/releases/latest)
+and unpack it. It contains the `haskott` executable. There are archives for
+x86_64 and aarch64 Linux, x86_64 and aarch64 macOS, and x86_64 Windows.
+
+- Linux binaries need glibc 2.34 or newer (e.g. Ubuntu 22.04, Debian 12,
+  RHEL 9), libgmp and zlib.
+- macOS binaries are not notarised. Remove the quarantine attribute before
+  running one: `xattr -d com.apple.quarantine haskott`.
+
+Each release also has `SHA256SUMS`, and a GitHub attestation for every
+file. To check an archive:
+
+```
+sha256sum --check --ignore-missing SHA256SUMS
+gh attestation verify ARCHIVE --repo andreabedini/haskott
+```
+
+### With mise
+
+[mise](https://mise.jdx.dev/) installs the release archive for your
+platform with its
+[GitHub backend](https://mise.jdx.dev/dev-tools/backends/github.html), and
+checks its checksum and attestation:
+
+```
+mise use -g github:andreabedini/haskott
+```
+
+Add `@VERSION` to pin a version, for example
+`github:andreabedini/haskott@0.1.0.0`. Without `-g`, the tool is added to
+the current project's `mise.toml`.
+
+### From source
 
 ```console
-$ git clone https://github.com/andreabedini/graft ../graft
 $ git clone https://github.com/andreabedini/haskott
 $ cd haskott
 $ cabal update
@@ -64,8 +97,15 @@ $ cabal run haskott -- check test/extensions/lambda.ott
 test/extensions/lambda.ott: ok
 ```
 
-GHC 9.12.2 is the tested compiler; the bounds admit GHC 9.6 and later. To
-use haskott from a Makefile, put it on the path:
+haskott is built on [graft](https://github.com/andreabedini/graft), which
+is not on Hackage yet: `cabal.project` pins a commit of its repository, and
+cabal clones it. To build against a checkout of graft instead, name it in
+`cabal.project.local`, as the comment in `cabal.project` shows. Each
+release also has the source distribution `haskott-VERSION.tar.gz`, which
+needs graft from Hackage, so for now build from the repository.
+
+GHC 9.12.2 and 9.14.1 are the tested compilers; the bounds admit GHC 9.6
+and later. To use haskott from a Makefile, put it on the path:
 
 ```console
 $ cabal install exe:haskott
@@ -310,7 +350,9 @@ from `bin/ott` in the Ott checkout.
 The suites read Ott's `tests/` and `examples/` from a checkout of Ott 0.34
 at `../ott`, and the report from
 `../haskell-2010-revised-report/formalisation`; `HASKOTT_OTT` and
-`HASKOTT_REPORT_OTT` name them when they are elsewhere.
+`HASKOTT_REPORT_OTT` name them when they are elsewhere. CI runs the suites
+on every platform of a release with a checkout of Ott 0.34 and without the
+report, which the suites that use it then skip.
 
 `cabal run haskott-differential` needs `bin/ott` built in that checkout.
 For every file Ott parses it compares, in turn: the raw parse with
@@ -331,6 +373,15 @@ The pipeline is a sequence of projections of one lossless tree. The header
 of the [`Haskott`](https://github.com/andreabedini/haskott/blob/main/src/Haskott.hs)
 module maps the modules onto Ott's sources, and each module's header says
 how it matches Ott and where it does not.
+
+## Documentation
+
+The API documentation of the latest release is at
+<https://andreabedini.github.io/haskott/>. Each
+[release](https://github.com/andreabedini/haskott/releases) also has the
+documentation of the library, as `haskott-VERSION-docs.tar.gz`, in the
+format Hackage takes. [CONTRIBUTING.md](CONTRIBUTING.md) describes the
+commit messages, the versions and how a release is made.
 
 ## Reference material
 
