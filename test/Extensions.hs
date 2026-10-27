@@ -33,12 +33,15 @@ import System.Process (readProcessWithExitCode)
 main :: IO ()
 main = do
   record <- (/= Nothing) <$> lookupEnv "HASKOTT_RECORD"
-  let dir = "test" </> "extensions"
+  -- The input path is echoed in the output's header, and the recorded
+  -- outputs have it with forward slashes, so it is not built with </>, which
+  -- would give backslashes on Windows.
+  let dir = "test/extensions"
       tmp = "dist-newstyle" </> "extensions-tmp"
   createDirectoryIfMissing True tmp
   specs <- sort . filter ((== ".ott") . takeExtension) <$> listDirectory dir
   results <- forM specs $ \name -> do
-    let spec = dir </> name
+    let spec = dir ++ "/" ++ name
         outputs =
           [ (replaceExtension spec "tex", ["-i", spec, "-o", tmp </> replaceExtension name "tex"], tmp </> replaceExtension name "tex")
           , (replaceExtension spec "typ", ["-i", spec, "-o", tmp </> replaceExtension name "typ"], tmp </> replaceExtension name "typ")
