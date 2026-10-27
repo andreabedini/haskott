@@ -1,13 +1,19 @@
 cabal-version:   3.0
 name:            haskott
 version:         0.1.0.0
-synopsis:        A Haskell reimplementation of the Ott semantics tool
+synopsis:        A Haskell reimplementation of Ott, with a language server
 description:
-    A reimplementation of Ott (Sewell et al., JFP 2010) in Haskell. Ott source
-    files are parsed into a lossless concrete syntax tree (graft), checked, and
-    typeset. See GRAMMAR.md for the specification of the Ott source language.
+    haskott reads Ott specifications (Sewell et al., JFP 2010) and writes what
+    Ott writes: TeX, the @[[ ]]@ document filters, and Coq, Isabelle, HOL,
+    Lem, OCaml and Twelf definitions, byte for byte on Ott's own tests and
+    examples. It takes Ott's command line. Because it parses into a lossless
+    syntax tree it also checks a whole specification with error recovery,
+    renames a root across files and documents, writes Typst, and runs a
+    language server. The source language is specified in
+    <https://github.com/andreabedini/haskott/blob/main/GRAMMAR.md GRAMMAR.md>.
 category:        Language
 license:         BSD-3-Clause
+license-file:    LICENSE
 author:          Andrea Bedini
 maintainer:      andrea@bedini.au
 build-type:      Simple

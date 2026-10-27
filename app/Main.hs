@@ -5,10 +5,14 @@
 -- With Ott's options (@-i FILE@, @-o FILE@ for TeX, Typst and the prover
 -- targets, the @-*_filter SRC DST@ options, @-picky_multiple_parses BOOL@,
 -- ...) haskott runs the whole pipeline and writes the outputs, so that it
--- can stand in for @ott@ in a Makefile. @rename@ renames a root across a
--- specification and its documents and @lsp@ runs a language server over
--- stdio. The development subcommands @check@, @roots@, @dump@, @showraw@,
--- @spec@, @structure@ and @parse@ look at one stage each.
+-- can stand in for @ott@ in a Makefile. Its exit status is Ott's: 2 on an
+-- error, 0 when rules fail to parse unless @-signal_parse_errors true@,
+-- which makes that 1. Unlike Ott it writes diagnostics to stderr and only
+-- the rule counts to stdout. @check@ reports every problem of a
+-- specification, @rename@ renames a root across a specification and its
+-- documents and @lsp@ runs a language server over stdio. The development
+-- subcommands @roots@, @dump@, @showraw@, @spec@, @structure@ and @parse@
+-- look at one stage each.
 module Main (main) where
 
 import Control.Monad (foldM, forM, forM_, unless, when)
@@ -20,7 +24,7 @@ import qualified Data.Text.IO as TIO
 import qualified Graft.Range as Range
 import Haskott.Defns
 import Haskott.Prover.Bounds (boundsConsistency)
-import Haskott.Term.Symterm (Symterm)
+import Haskott.Term.Symterm (Symterm (..))
 import Haskott.Diagnostics
 import Haskott.Load
 import Haskott.Rename
@@ -39,8 +43,8 @@ import Haskott.Prover
 import Haskott.Term.Grammar (nonterminalCount)
 import Server (serverMain)
 import System.Environment (getArgs)
-import System.Exit (exitFailure)
-import System.IO (hPutStrLn, stderr)
+import System.Exit (ExitCode (..), exitFailure, exitWith)
+import System.IO (hPutStr, hPutStrLn, stderr)
 
 main :: IO ()
 main = do
@@ -48,8 +52,8 @@ main = do
   case args of
     ("check" : files@(_ : _)) -> do
       let (picky, files') = (any (== "--picky") files, filter (/= "--picky") files)
-      results <- mapM (checkFile picky) files'
-      if and results then pure () else exitFailure
+      ok <- checkSpec picky files'
+      unless ok exitFailure
     ["showraw", file] -> do
       src <- readSource file
       case parseDocument src of
@@ -107,10 +111,32 @@ main = do
       case loadSpec texts of
         Left e -> reportLoadError e >> exitFailure
         Right l -> mapM_ TIO.putStrLn (renameableRoots (ldSpec l))
+    [h] | h `elem` ["help", "-help", "--help"] -> putStr usage
     (('-' : _) : _) -> ottMain args
-    _ -> do
-      hPutStrLn stderr "usage: haskott [-i FILE]... [-o FILE.tex|.typ|.v|.thy|.sml|.lem|.ml|.twf]... [-tex_filter SRC DST]... [-typst_filter SRC DST]... [OPTION]...\n       haskott rename [--write] OLD NEW FILE...\n       haskott lsp\n       haskott check [--picky] FILE...\n       haskott roots FILE...\n       haskott dump [--terms] FILE\n       haskott showraw FILE\n       haskott spec FILE\n       haskott structure FILE...\n       haskott parse FILE \":root: text\""
-      exitFailure
+    _ -> hPutStr stderr usage >> exitFailure
+
+usage :: String
+usage =
+  unlines
+    [ "usage: haskott [-i FILE]... [-o OUT]... [-tex_filter SRC DST]... [-typst_filter SRC DST]... [OPTION]..."
+    , "                                           Ott's command line: check the inputs, write the outputs"
+    , "       haskott check [--picky] FILE...     report every problem of a specification"
+    , "       haskott rename [--write] OLD NEW FILE..."
+    , "                                           rename a root across a specification and its documents"
+    , "       haskott roots FILE...               the names rename accepts"
+    , "       haskott lsp                         run the language server over stdio"
+    , "       haskott dump [--terms] FILE         the lossless tree, before or after the rule lines are parsed"
+    , "       haskott showraw FILE                the raw specification, as ott -showraw prints it"
+    , "       haskott spec FILE                   the checked specification"
+    , "       haskott structure FILE...           the entries of the prover output, in order"
+    , "       haskott parse FILE ':root: text'    every parse of a term, as ott -parse prints them"
+    , "       haskott help                        this text"
+    , ""
+    , "OUT ends in .tex, .typ, .v, .thy, .sml, .lem, .ml or .twf. OPTION is one of Ott's:"
+    , "-picky_multiple_parses, -merge, -output_source_locations, -signal_parse_errors,"
+    , "the -coq_*, -isa*, -ocaml_include_terminals, -no_rbcatn and -tex_* options and the"
+    , "prover -*_filter options; see README.md."
+    ]
 
 ------------------------------------------------------------------------
 -- Ott's command line
@@ -125,18 +151,22 @@ data Options = Options
   , oProverFilters :: [(Target, FilePath, FilePath)]
   , oPicky :: Bool
   , oMerge :: Bool
+  , oSignalParseErrors :: Bool
+  -- ^ exit 1 when a rule or clause fails to parse, as Ott's option
   , oTex :: TexOptions
   }
 
 parseOptions :: [String] -> Either String Options
-parseOptions = go (Options [] [] [] defaultProverOptions [] [] False False (defaultTexOptions Latex))
+parseOptions = go (Options [] [] [] defaultProverOptions [] [] False False False (defaultTexOptions Latex))
   where
     go o args = case args of
       [] -> Right o {oInputs = reverse (oInputs o), oOutputs = reverse (oOutputs o), oFileArgs = reverse (oFileArgs o), oFilters = reverse (oFilters o), oProverFilters = reverse (oProverFilters o)}
       flag : s : d : rest | Just t <- lookup flag proverFilterFlags -> go o {oProverFilters = (t, s, d) : oProverFilters o} rest
       "-i" : f : rest -> go o {oInputs = f : oInputs o, oFileArgs = (True, f) : oFileArgs o} rest
       "-o" : f : rest -> go o {oOutputs = f : oOutputs o, oFileArgs = (False, f) : oFileArgs o} rest
-      "-coq_avoid" : n : rest -> go (prover o (\p -> p {optCoqAvoid = read n})) rest
+      "-coq_avoid" : n : rest
+        | [(v, "")] <- reads n -> go (prover o (\p -> p {optCoqAvoid = v})) rest
+        | otherwise -> Left ("expected a number, found " ++ show n)
       "-coq_expand_list_types" : b : rest -> bool b >>= \v -> go (prover o (\p -> p {optCoqExpandLists = v})) rest
       "-coq_names_in_rules" : b : rest -> bool b >>= \v -> go (prover o (\p -> p {optCoqNamesInRules = v})) rest
       "-coq_use_filter_fn" : b : rest -> bool b >>= \v -> go (prover o (\p -> p {optCoqUseFilterFn = v})) rest
@@ -151,6 +181,7 @@ parseOptions = go (Options [] [] [] defaultProverOptions [] [] False False (defa
       "-typst_filter" : s : d : rest -> go o {oFilters = (Typst, s, d) : oFilters o} rest
       "-picky_multiple_parses" : b : rest -> bool b >>= \v -> go o {oPicky = v} rest
       "-merge" : b : rest -> bool b >>= \v -> go o {oMerge = v} rest
+      "-signal_parse_errors" : b : rest -> bool b >>= \v -> go o {oSignalParseErrors = v} rest
       "-output_source_locations" : n : rest
         | [(v, "")] <- reads n -> go (tex (prover o (\p -> p {optSourceLocations = v})) (\t -> t {optTexSourceLocations = v})) rest
         | otherwise -> Left ("expected a number, found " ++ show n)
@@ -178,21 +209,25 @@ outputDialect f
   | ".typ" `isSuffixOf` f = Just Typst
   | otherwise = Nothing
 
+-- | Ott's exit status for an error.
+ottError :: IO a
+ottError = exitWith (ExitFailure 2)
+
 ottMain :: [String] -> IO ()
 ottMain args = do
-  opts <- either (\m -> hPutStrLn stderr m >> exitFailure) pure (parseOptions args)
-  when (null (oInputs opts)) $ hPutStrLn stderr "no input files" >> exitFailure
+  opts <- either (\m -> hPutStrLn stderr m >> ottError) pure (parseOptions args)
+  when (null (oInputs opts)) $ hPutStrLn stderr "no input files" >> ottError
   outputs <- fmap concat $ forM (oOutputs opts) $ \o -> case (outputDialect o, targetOfOutput o) of
     (Just d, _) -> pure [(d, o)]
     (_, Just _) -> pure []
-    _ -> hPutStrLn stderr ("unrecognised extension of output file " ++ show o) >> exitFailure
+    _ -> hPutStrLn stderr ("unrecognised extension of output file " ++ show o) >> ottError
   -- the prover targets, each once, in the order of their last output
   let proverTargets = removeDuplicatesLast [t | o <- oOutputs opts, Just t <- [targetOfOutput o]]
   -- every file is parsed into its own tree and the raw documents are
   -- checked as one, as Ott does with several -i options
   sourcesText <- forM (oInputs opts) $ \f -> (,) f <$> readSource f
   loaded <- case loadSpecWith (oMerge opts) sourcesText of
-    Left e -> reportLoadError e >> exitFailure
+    Left e -> reportLoadError e >> ottError
     Right l -> pure l
   let spec = ldSpec loaded
       files = ldSources loaded
@@ -215,19 +250,19 @@ ottMain args = do
       warnings = concat [map (shiftDiag (srcBase s)) ws | s <- files, let (_, _, ws) = spliceTerms policy tp (srcTree s)]
   mapM_ report diags
   -- Ott stops at some problems of the definitions before any output
-  when (any isFatalDiagnostic diags) exitFailure
+  when (any isFatalDiagnostic diags) ottError
   mapM_ (\d -> report d {diagMessage = "warning: " <> diagMessage d}) warnings
   -- Ott extracts the bounds of every rule and clause while printing TeX,
   -- and stops at inconsistent ones
   unless (null outputs) $
     case mapM_ boundsConsistency (ruleTerms processed) of
-      Left m -> hPutStrLn stderr ("Error in generating output:\n" ++ T.unpack m ++ "\n") >> exitFailure
+      Left m -> hPutStrLn stderr ("Error in generating output:\n" ++ T.unpack m ++ "\n") >> ottError
       Right () -> pure ()
   forM_ outputs $ \(d, o) -> writeText o (texDocument (envOf d) sources processed)
   unless (null proverTargets) $ do
     let inputs = [Input (srcPath s) (srcText s) (srcBase s) | s <- files]
     prepared <- case prepareProvers (oMerge opts) proverTargets inputs spec (nonterminalCount (termGrammar tp)) of
-      Left d -> report d >> exitFailure
+      Left d -> report d >> ottError
       Right p -> pure p
     let job t =
           ProverJob
@@ -243,7 +278,7 @@ ottMain args = do
             , pjSources = makeSources files
             }
         run vertex t = case proverOutputs prepared (job t) vertex of
-          Left m -> hPutStrLn stderr ("Error: " ++ T.unpack m) >> exitFailure
+          Left m -> hPutStrLn stderr ("Error: " ++ T.unpack m) >> ottError
           Right (written, vertex') -> do
             forM_ written (uncurry writeText)
             pure vertex'
@@ -252,19 +287,34 @@ ottMain args = do
   forM_ (oFilters opts) $ \(d, s, dst) -> do
     src <- readSource s
     case filterDocument (envOf d) src of
-      Left m -> hPutStrLn stderr (s ++ ": " ++ T.unpack m) >> exitFailure
-      Right out -> writeText dst out
+      Left m -> hPutStrLn stderr (s ++ ": " ++ T.unpack m) >> ottError
+      Right out -> reportQuotations s src (quotationParser policy tp) >> writeText dst out
   -- Ott filters with the TeX dialects first, then the provers in this order
   forM_ [f | t <- [Coq, Isa, Hol, Lem, Caml], f@(t', _, _) <- oProverFilters opts, t' == t] $ \(t, s, dst) -> do
     src <- readSource s
     case filteredDocument src >>= proverFilter t (oProver opts) spec (quotationParser policy tp) of
-      Left m -> hPutStrLn stderr (s ++ ": " ++ T.unpack m) >> exitFailure
-      Right out -> writeText dst out
+      Left m -> hPutStrLn stderr (s ++ ": " ++ T.unpack m) >> ottError
+      Right out -> reportQuotations s src (quotationParser policy tp) >> writeText dst out
   let counts = countsString processed
   unless (T.null counts) (TIO.putStr counts)
-  unless (null diags) exitFailure
+  -- Ott's "N bad": exit 1 only when asked to
+  when (oSignalParseErrors opts && not (null diags)) (exitWith (ExitFailure 1))
   where
     shiftDiag base d = d {diagRange = shiftRange base (diagRange d)}
+
+-- | A quotation of a filtered document that does not parse is typeset as
+-- written, as Ott does; Ott also says so, and so does this, on stderr.
+reportQuotations :: FilePath -> T.Text -> (T.Text -> Symterm) -> IO ()
+reportQuotations file src parse = case documentQuotations src of
+  Left _ -> pure ()
+  Right quotations -> forM_ quotations $ \(off, written, text) -> case parse text of
+    StUninterpreted _ m ->
+      let (l, c) = offsetPosition src off
+          what
+            | m == "multiple parses" = "multiple parses of \"" ++ T.unpack written ++ "\""
+            | otherwise = "no parses of \"" ++ T.unpack written ++ "\": " ++ T.unpack (T.takeWhile (/= '\n') m)
+       in hPutStrLn stderr (file ++ ":" ++ show l ++ ":" ++ show c ++ ": warning: " ++ what)
+    _ -> pure ()
 
 -- | The terms of each rule and clause, in Ott's printing order.
 ruleTerms :: Processed -> [[Symterm]]
@@ -351,26 +401,27 @@ readSource file = do
       exitFailure
     Right t -> pure t
 
--- | The whole pipeline on one file, reporting every problem (see
--- "Haskott.Diagnostics").
-checkFile :: Bool -> FilePath -> IO Bool
-checkFile picky file = do
-  src <- readSource file
-  let report = diagnose picky [(file, src)]
+-- | The whole pipeline on the files of one specification, in Ott's order,
+-- reporting every problem (see "Haskott.Diagnostics").
+checkSpec :: Bool -> [FilePath] -> IO Bool
+checkSpec picky files = do
+  texts <- forM files $ \f -> (,) f <$> readSource f
+  let report = diagnose picky texts
       errors = [p | p <- reportProblems report, problemSeverity p == Error]
+      label = unwords files
   forM_ (reportProblems report) $ \p ->
     let d = problemDiagnostic p
         prefix = if problemSeverity p == Warning then "warning: " else ""
      in reportDiagnostic (problemFile p) (problemText p) d {diagMessage = prefix <> diagMessage d}
   unless (reportRulesChecked report) $
-    hPutStrLn stderr (file ++ ": the rules of the definitions are checked once the errors above are fixed")
+    hPutStrLn stderr (label ++ ": the rules of the definitions are checked once the errors above are fixed")
   let n = length errors
   if not (reportRoundTrips report)
-    then putStrLn (file ++ ": TERMS DO NOT ROUND-TRIP") >> pure False
+    then putStrLn (label ++ ": TERMS DO NOT ROUND-TRIP") >> pure False
     else
       if n == 0
-        then putStrLn (file ++ ": ok") >> pure True
-        else putStrLn (file ++ ": " ++ show n ++ (if n == 1 then " error" else " errors")) >> pure False
+        then putStrLn (label ++ ": ok") >> pure True
+        else putStrLn (label ++ ": " ++ show n ++ (if n == 1 then " error" else " errors")) >> pure False
 
 reportDiagnostic :: FilePath -> T.Text -> Diagnostic -> IO ()
 reportDiagnostic file src d =

@@ -1,9 +1,9 @@
 -- | The syntax kinds of haskott's lossless tree.
 --
 -- One flat enumeration serves both tokens and nodes, as graft's @kind@
--- parameter. The constructors follow @GRAMMAR.md@: the trivia kinds of §7,
--- the token kinds of the lexer modes of §2, and one node kind per
--- syntactic construct of §3 and §4.
+-- parameter. The constructors follow @GRAMMAR.md@: the trivia kinds (see
+-- the header of "Haskott.Syntax.Parser"), the token kinds of the lexer
+-- modes of §2, and one node kind per syntactic construct of §3 and §4.
 module Haskott.Syntax.Kind
   ( Kind (..)
   , isTrivia
@@ -13,7 +13,7 @@ module Haskott.Syntax.Kind
 import Data.Text (Text)
 
 data Kind
-  = -- Trivia (GRAMMAR.md §7)
+  = -- Trivia (the header of "Haskott.Syntax.Parser")
     Space
     -- ^ a run of non-newline whitespace: space, tab, form feed
   | Newline
