@@ -37,7 +37,7 @@ import qualified Graft.Range as Range
 import qualified Haskott.Raw as R
 import Haskott.Spec
 import Haskott.Term.Parse
-import Haskott.Term.Requests (embeddedQuotations, ruleNameParse)
+import Haskott.Term.Requests (embeddedQuotations, embeddedSplit, ruleNameParse)
 import Haskott.Term.Symterm
 
 data Drule = Drule
@@ -260,9 +260,7 @@ processRule picky tp dc d prodName' sr = case sr of
 -- | The text of an embedded premise with each @[[ ... ]]@ replaced by
 -- @-ARG-@, as Ott names the resulting node.
 embeddingString :: Text -> Text
-embeddingString s =
-  let inner = maybe s id (T.stripPrefix "{{" (T.strip s) >>= T.stripSuffix "}}")
-   in go inner
+embeddingString s = go (maybe s fst (embeddedSplit s))
   where
     go t = case T.breakOn "[[" t of
       (before, rest)

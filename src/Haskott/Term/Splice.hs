@@ -29,7 +29,7 @@ import Haskott.Spec (Diagnostic (..))
 import Haskott.Syntax.Ast (defnName, defnsWrapper, funsName)
 import Haskott.Syntax.Kind (Kind (..))
 import Haskott.Term.Parse
-import Haskott.Term.Requests (embeddedQuotations, ruleNameParse)
+import Haskott.Term.Requests (embeddedQuotations, embeddedSplit, ruleNameParse)
 import Haskott.Term.Tree (termElements)
 
 type C = Cursor Kind
@@ -111,13 +111,20 @@ spliceTerms policy tp doc =
       _ -> keep c
 
     -- {{ text [[ term ]] text }}: every quotation must parse for the
-    -- premise to be spliced
-    embedded s = do
-      let inner = maybe s id (T.stripPrefix "{{" s >>= T.stripSuffix "}}")
-      parts <- quotationParts inner
-      pure $ case parts of
-        Nothing -> Nothing
-        Just els -> Just [Node (Green.node EmbedPremise ([Token (Green.token HomOpen "{{")] ++ els ++ [Token (Green.token HomClose "}}")]))]
+    -- premise to be spliced; text after the closing braces, which Ott
+    -- drops, stays in the tree as garbage
+    embedded s = case embeddedSplit s of
+      Nothing -> pure Nothing
+      Just (inner, after) -> do
+        parts <- quotationParts inner
+        pure $ case parts of
+          Nothing -> Nothing
+          Just els ->
+            Just
+              ( spaceToken (T.takeWhile (== ' ') s)
+                  ++ [Node (Green.node EmbedPremise ([Token (Green.token HomOpen "{{")] ++ els ++ [Token (Green.token HomClose "}}")]))]
+                  ++ [Token (Green.token Garbage after) | not (T.null after)]
+              )
 
     quotationParts t = case T.breakOn "[[" t of
       (before, rest)

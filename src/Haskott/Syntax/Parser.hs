@@ -10,13 +10,49 @@
 -- of the input: 'parseDocument' followed by 'Graft.Green.renderNode' is the
 -- identity on accepted inputs.
 --
--- Trivia placement follows §7: a node spans from its first to its last
--- syntax token, an item also owns the whitespace directly in front of it and
--- the trivia to the end of its last line, and comment lines after an item
--- indented past the item's column stay with it (Rule 2). The item loops
--- ('itemLoop', 'defnBody', 'funBody') implement this by handing trailing
--- trivia back to the enclosing node and re-attaching what the rules give to
--- the item ('attach').
+-- The tree holds every character of the input (GRAMMAR.md §7):
+--
+-- * Every interstitial of GRAMMAR.md §2 is a trivia token: 'Space' (a run
+--   of non-newline whitespace), 'Newline', 'LineComment' (@%@ to the end of
+--   the line, terminator excluded) and 'BlockComment' (from @>>@ to its
+--   matching @<<@, nesting included, as one token).
+-- * @BLANKS@ in hom bodies are the same trivia kinds; the hom body's string
+--   runs are 'HomText' tokens; @[[@ and @]]@ are tokens. Ott's lexer swallows
+--   the blanks before a comprehension's @</@ into one token; here they stay
+--   a 'Space' before the 'CompOpen'.
+-- * In the line-oriented mode, a @LINE@ is a 'Line' token without its
+--   terminator, the terminator is a 'Newline', a @BLANKLINE@ is
+--   @Space? Newline@, a @COMMENTLINE@ is @Space? LineComment Newline@, and a
+--   @LINELINE@ is a 'Dashes' token followed by the tokens of its annotation,
+--   lexed as in @metalang@.
+-- * Node shapes: a 'Premise', 'Conclusion', 'Formula' or 'Clause' is
+--   @Space? Line@; a 'RuleLine' is @Space? Dashes@ followed by the
+--   annotation's tokens; a 'DefnCom' is @Space? HomOpen Space? HomText("com")@
+--   followed by the body's tokens. 'Name', 'Bindspec', 'Mse', 'CompBound',
+--   'Hom' and 'HomRef' are tight on both sides: the trivia around them
+--   belongs to their parent.
+--
+-- Trivia placement follows two rules. A node spans from its first to its
+-- last syntax token. An item (metavar declaration, rule, production, defn,
+-- rule in a body, clause) also owns the whitespace directly in front of it
+-- on its line and the trivia to the end of its last line, and, by the
+-- /indentation rule/, the comment lines after it that are indented past its
+-- first column, with the blank lines between them. All other trivia belongs
+-- to the innermost node whose span contains it, so comment lines between two
+-- productions are siblings in the rule node, and no node is given the
+-- comment lines above it. In a definition body this means the comment lines
+-- after a rule go with the rule when indented past its first line and with
+-- the definition otherwise; Ott's grammar makes a comment line directly
+-- after the conclusion part of the same block, but the tree does not record
+-- blocks. The item loops ('itemLoop', 'defnBody', 'funBody') implement this
+-- by handing trailing trivia back to the enclosing node and re-attaching
+-- what the rules give to the item ('attach').
+--
+-- Rendering an unedited tree yields the input exactly; the @corpus@ test
+-- suite checks this on every corpus file. The stage-two parse
+-- ("Haskott.Term.Splice") replaces each 'Line' token of a premise,
+-- conclusion or clause by a subtree whose rendering is the line's text, so
+-- the law still holds for the whole file afterwards.
 module Haskott.Syntax.Parser
   ( ParseError (..)
   , parseDocument

@@ -8,15 +8,33 @@ al., "Ott: Effective tool support for the working semanticist", JFP 20(1),
 haskott reads `.ott` files, checks them as Ott does, and writes what Ott
 writes: TeX, the `[[ ... ]]` document filters, and the definitions for
 Coq, Isabelle, HOL, Lem, OCaml and Twelf. On Ott's own `tests/` and
-`examples/` its output is Ott's, byte for byte. It takes Ott's command
-line, so it can stand in for `ott` in a Makefile.
+`examples/` its output is Ott's, byte for byte, and it takes Ott's command
+line, so it can stand in for `ott` in a Makefile. Beyond Ott, it reports
+every problem of a specification with its position where Ott stops at the
+first, renames a name across a specification and the documents that quote
+it, writes Typst as well as TeX, and runs as a language server for editors.
 
-The input language is Ott 0.34's, with four extensions of haskott's own:
-Typst output, with `typst` homs and embeds and a `-typst_filter`; quoted
-terminals in productions (`'in'`, `'::'`), which Ott reads as ordinary
-identifiers and haskott as terminals; nested dot forms; and shifted
-indices (`e_n-1`). Ott rejects a `typst` hom and the last two as bad
-rules. `GRAMMAR.md` specifies the source language.
+An Ott specification declares a grammar and defines judgements over it:
+
+```
+metavar x ::= {{ tex \mathit{[[x]]} }}            % a hom attaches output text
+grammar
+  t :: 't_' ::=
+    | x          :: :: var
+    | \ x . t    :: :: lam  (+ bind x in t +)     % a binding specification
+    | t t'       :: :: app                        % t' is the root t with suffix '
+defns J :: '' ::=
+  defn t --> t' :: :: red :: '' by
+    ------------------------- :: beta             % a rule: premises, line, conclusion
+    (\ x . t) t' --> t' x t
+```
+
+Homs such as `{{ tex ... }}` carry text for one back end, with `[[ ]]`
+quoting a term to be typeset; an identifier in a rule is a declared root
+plus a suffix. [GRAMMAR.md](https://github.com/andreabedini/haskott/blob/main/GRAMMAR.md)
+specifies the source language exactly, for implementers and for working
+out why a file is rejected; to learn Ott, read
+[its manual](http://www.cl.cam.ac.uk/~pes20/ott/top2.html).
 
 Unlike Ott, haskott parses a specification into a lossless concrete syntax
 tree (a [graft](https://github.com/andreabedini/graft) green tree:
@@ -25,41 +43,38 @@ from it. That is what makes `haskott rename` and the language server
 possible: a specification can be edited without disturbing the text the
 edit is not about.
 
-The driving use is the formalisation of the Haskell 2010 revised report, in
-the `formalisation` directory of `haskell-2010-revised-report`.
+The driving use is the formalisation of the
+[Haskell 2010 revised report](https://github.com/andreabedini/haskell-2010-revised-report),
+in its `formalisation` directory. The section
+[Differences from Ott](#differences-from-ott) says what haskott adds, what
+it leaves out, and where it behaves differently.
 
 ## Building
 
-haskott depends on a sibling checkout of graft; `cabal.project` fixes the
-layout:
-
-```
-<parent>/haskott   (this repository)
-<parent>/graft     (a checkout of andreabedini/graft)
-```
-
-With GHC 9.12.2 and cabal (from ghcup):
+haskott depends on a sibling checkout of graft, which is not on Hackage;
+`cabal.project` fixes the layout:
 
 ```console
+$ git clone https://github.com/andreabedini/graft ../graft
+$ git clone https://github.com/andreabedini/haskott
+$ cd haskott
+$ cabal update
 $ cabal build all
 $ cabal run haskott -- check test/extensions/lambda.ott
 test/extensions/lambda.ott: ok
 ```
 
+GHC 9.12.2 is the tested compiler; the bounds admit GHC 9.6 and later. To
+use haskott from a Makefile, put it on the path:
+
+```console
+$ cabal install exe:haskott
+```
+
 ## Using it as Ott
 
 ```
-haskott -i FILE... -o OUT [-tex_filter SRC DST] [-typst_filter SRC DST]
-        [-coq_filter SRC DST] [-isa_filter SRC DST] [-hol_filter SRC DST]
-        [-lem_filter SRC DST] [-ocaml_filter SRC DST]
-        [-picky_multiple_parses BOOL] [-merge BOOL] [-output_source_locations N]
-        [-coq_avoid N] [-coq_expand_list_types BOOL] [-coq_names_in_rules BOOL]
-        [-coq_use_filter_fn BOOL] [-coq_lngen BOOL]
-        [-isabelle_primrec BOOL] [-isabelle_inductive BOOL] [-isa_syntax BOOL]
-        [-isa_generate_lemmas BOOL] [-ocaml_include_terminals BOOL] [-no_rbcatn BOOL]
-        [-tex_name_prefix P] [-tex_show_meta BOOL] [-tex_show_categories BOOL]
-        [-tex_colour BOOL] [-tex_wrap BOOL] [-tex_suppress_category C]
-        [-tex_suppress_ntr N]
+haskott -i FILE... -o OUT... [OPTION]...
 ```
 
 The output format follows the extension of `-o`: `.tex`, `.typ`, `.v`
@@ -75,23 +90,69 @@ $ haskott -i ott/style.ott -i ott/expressions.ott -o build/expressions.typ
 
 and `make OTT=haskott` in its `formalisation` directory builds the PDFs.
 
-Behaviour copied from Ott, including its less obvious parts: `-merge true`
-merges rules, definition classes, definitions and functions of the same
-name across files; a rule with no or several conclusions stops the run; the
-bounds of every rule are checked before TeX output; a term with several
-parses is an error only under `-picky_multiple_parses true`, otherwise the
-first parse is used when every requested target prints them the same (TeX
-and the provers but OCaml; never Typst); `-output_source_locations N`
-annotates every output with the source lines Ott's parser would report.
+The options are Ott's, with Ott's defaults:
 
-Not implemented: the OCaml lexer and parser generators (`.mll`, `.mly`,
-`-ocaml_pp`, `-ocaml_pp_ast_module`, `-ocaml_pp_json`),
-`-writesys`/`-readsys`, `-twelf_filter`, `-generate_aux_rules`,
-`-quotient_rules`, `-aux_style_rules`, `-lift_cons_prefixes`,
-`-signal_parse_errors`, `-fast_parse`, `-sort`, `-process_defns`, `-alltt`,
-`-colour`, and Ott's debugging outputs (`-showraw`, `-show_sort`,
-`-show_defns`, `-pp_grammar`, `-dot`, `-ugly`). An option haskott does not
-know is an error, not a warning.
+| option | |
+|---|---|
+| `-tex_filter SRC DST`, `-typst_filter SRC DST` | replace the `[[ ]]` quotations of a document |
+| `-coq_filter`, `-isa_filter`, `-hol_filter`, `-lem_filter`, `-ocaml_filter SRC DST` | the same for a prover's text |
+| `-picky_multiple_parses BOOL` | several parses of a term are an error (default false: the first is used when every requested target prints them the same, as Ott decides for TeX and the provers except OCaml, and never for Typst) |
+| `-merge BOOL` | merge rules, definition classes, definitions and functions of the same name across files |
+| `-output_source_locations N` | annotate the output with the source lines Ott's parser would report (0, 1 or 2) |
+| `-signal_parse_errors BOOL` | exit 1 when a rule or clause fails to parse |
+| `-coq_avoid N`, `-coq_expand_list_types`, `-coq_names_in_rules`, `-coq_use_filter_fn`, `-coq_lngen BOOL` | Coq output |
+| `-isabelle_primrec`, `-isabelle_inductive`, `-isa_syntax`, `-isa_generate_lemmas BOOL` | Isabelle output |
+| `-ocaml_include_terminals`, `-no_rbcatn BOOL` | OCaml and Lem output |
+| `-tex_name_prefix P`, `-tex_show_meta`, `-tex_show_categories`, `-tex_colour`, `-tex_wrap BOOL`, `-tex_suppress_category C`, `-tex_suppress_ntr N` | TeX and Typst output |
+
+Any other option is an error, not a warning; the list above is complete.
+Behaviour copied from Ott, including its less obvious parts: a rule with no
+or several conclusions stops the run; the bounds of every rule are checked
+before TeX output; a rule or clause that does not parse is reported, the
+output is still written, and the exit status is 0 unless
+`-signal_parse_errors true`; every other error exits with status 2.
+
+## Differences from Ott
+
+**Extensions.** Four, all of haskott's own; the Ott checkout the tests use
+is stock Ott 0.34, which has none of them.
+
+- Typst output (`-o FILE.typ`, `-typst_filter`), with `typst` homs and
+  embeds. Ott rejects a `typst` hom as illegal.
+- Quoted terminals in productions (`'in'`, `'::'`). Ott dequotes an element
+  and reads it like any other identifier, so `'in'` with a metavariable `i`
+  and an index variable `n` is that metavariable; haskott reads a quoted
+  element as a terminal unless its content is exactly a declared root
+  ([GRAMMAR.md §3.4](https://github.com/andreabedini/haskott/blob/main/GRAMMAR.md#34-elements)).
+- Nested dot forms (`K_1 p_1_1 .. p_1_k1 -> e_1 ; .. ; K_n p_n_1 .. p_n_kn -> e_n`)
+  and shifted indices (`e_n-1` in a dot form), in TeX and Typst output only.
+  Ott rejects both as rules that do not parse.
+
+**Streams and status.** Ott writes everything to stdout; haskott writes
+diagnostics and warnings to stderr, in `FILE:LINE:COL: message` form, and
+only Ott's rule counts to stdout. Exit statuses are Ott's: 2 on an error,
+1 for unparsed rules under `-signal_parse_errors true`, 0 otherwise. A
+quotation in a filtered document that does not parse is typeset as written
+and reported as a warning, as Ott reports it.
+
+**Two intended divergences in parsing.** A file that is not valid UTF-8 is
+rejected (Ott reads bytes). A last line consisting of one word with no
+final newline is accepted (Ott rejects it through an off-by-one in its
+lexer). Both are in GRAMMAR.md, with the corpus files they affect.
+
+**Not implemented.** The OCaml lexer and parser generators (`.mll` and
+`.mly` outputs, `-ocaml_pp`, `-ocaml_pp_ast_module`, `-ocaml_pp_json`);
+`-writesys` and `-readsys`; `-generate_aux_rules`, `-quotient_rules` and
+`-aux_style_rules`, which Ott has on by default, so the `aux`, `auxparam`,
+`quotient-with` and `quotient-remove` homs are accepted and not acted on;
+`-parse`, `-lem_debug`, `-fast_parse`, `-sort`, `-process_defns`, `-alltt`,
+`-colour` and the debugging outputs (`-showraw`, `-show_sort`,
+`-show_defns`, `-pp_grammar`, `-dot`, `-ugly`; `haskott showraw` and
+`haskott spec` are the counterparts of the first two); `-i` files with an
+output extension, which Ott copies into the output. Of Ott's checks, the
+context-rule checks and the productivity check are not implemented. A
+lineless rule (a block of lines with no dashed line, Ott's test-harness
+form) is accepted and reported as a diagnostic.
 
 ## Checking a specification
 
@@ -99,14 +160,13 @@ know is an error, not a warning.
 haskott check [--picky] FILE...
 ```
 
-runs the whole pipeline on the files of one specification and reports every
+reads the files as one specification, in Ott's order, and reports every
 problem with its line and column, where Ott stops at the first. Parsing
-recovers at the next line where an item, rule, production, definition or
-function can start; checking drops only the construct an error is about.
-The rule lines of the definitions are checked once the grammar has no
-errors, since with a broken grammar most of their problems would be
-consequences. The first problem reported is the one Ott reports. `--picky`
-makes several parses of a term an error.
+recovers at the next construct and checking drops only the construct an
+error is about; the rule lines are checked once the grammar has no errors.
+The first problem reported is the one Ott reports. `--picky` makes several
+parses of a term an error. The exit status is 1 when there are errors.
+How recovery works is in the header of `Haskott.Diagnostics`.
 
 ## Renaming
 
@@ -116,21 +176,17 @@ haskott rename [--write] OLD NEW FILE...
 
 renames a metavariable, index variable or grammar-rule root across the
 `.ott` files of a specification (in the order Ott reads them) and the
-`[[ ]]` quotations of the documents filtered against it (the other files
-given). It edits every identifier Ott reads as that root with any suffix,
-or as a root whose suffix mentions the index variable: in declarations,
-productions, judgement forms, bounds, bindspecs, hom references that
-resolve to an element, subrules, context rules, substitutions, free
-variables, function results, the parsed rule lines and the quotations.
-Comments, hom bodies and other text stay as written; mentions of the root
-found there are listed as notes.
-
-Every rename is verified before anything is written: the renamed files are
-loaded, checked and parsed again and must give the same grammar and the
-same parse of every term, up to the renaming. A rename to an existing root,
-a terminal, a keyword, or a name that changes how anything lexes is refused
-with the reason. Without `--write` the edits are only listed. `haskott
-roots FILE...` lists the names `rename` accepts.
+documents filtered against it (the other files given), everywhere the name
+is read as that root: declarations, productions, judgement forms,
+bindspecs, hom references, rule lines, quotations. Comments and hom bodies
+stay as written; mentions found there are listed as notes. Every rename is
+verified before anything is written: the renamed files must give the same
+grammar and the same parse of every term, up to the renaming, and a rename
+that would capture a suffix, clash with a terminal, keyword or root, or
+change how anything lexes is refused with the reason. Without `--write` the
+edits are only listed. `haskott roots FILE...` lists the names `rename`
+accepts. The header of `Haskott.Rename` has the full list of what is
+edited.
 
 ## Language server
 
@@ -139,15 +195,17 @@ haskott lsp
 ```
 
 speaks the Language Server Protocol over stdio (a trailing `--stdio`, as
-editors add it, is accepted).
+editors add it, is accepted). [vscode-ott](https://github.com/andreabedini/vscode-ott)
+is a client, and [tree-sitter-ott](https://github.com/andreabedini/tree-sitter-ott)
+a grammar for the metalanguage that editors can pair with it.
+
+### haskott.json
 
 A specification can span several files, and one file can be part of
 several specifications, so they are listed in a `haskott.json`. For a file,
 the nearest `haskott.json` at or above its directory, up to the workspace
-root, counts; its paths are relative to its own directory. `files` lists a
-specification's files in the order Ott reads them; `picky` (default false)
-is `-picky_multiple_parses`; `documents` (default none) are the documents
-filtered against it, whose quotations a rename rewrites too. The report's:
+root, counts; its paths are relative to its own directory. A file no
+specification lists is a specification of its own. The report's:
 
 ```json
 { "specs": [ { "files": ["ott/style.ott", "ott/expressions.ott"], "picky": true,
@@ -155,28 +213,62 @@ filtered against it, whose quotations a rename rewrites too. The report's:
              { "files": ["ott/style.ott", "ott/layout.ott"], "picky": true } ] }
 ```
 
-A file no specification lists is a specification of its own. Open files are
-read from the editor, the others from disk.
+| key | |
+|---|---|
+| `files` | the specification's files, in the order Ott reads them (required) |
+| `picky` | `-picky_multiple_parses` (default false) |
+| `documents` | documents filtered against it, whose quotations rename rewrites too (default none) |
 
-The server provides diagnostics (every problem of each specification an
-edited file is part of, a short while after the last change; a newer change
-cancels a check still running); go to declaration, find references and
-document highlights for metavariables, index variables and grammar rules
-across the files and documents of a specification; an outline of each
-file; rename, with the verification of `haskott rename`, applied to every
-specification the edit reaches, so a file shared by two specifications is
-renamed in both (the edit carries the versions of the open files it was
-computed from, so an editor refuses it if a file changed meanwhile); and
-semantic tokens, so an editor with no grammar of Ott can highlight from
-them alone. Terminals, nonterminals, metavariables and index variables in
-rule lines are classified from the term parse, so the highlighting shows
-what the grammar makes of each identifier; while the specification has
-errors elsewhere, the lines are parsed with what the checker kept of the
-grammar.
+### What the server provides
+
+- `textDocument/publishDiagnostics`: every problem of each specification an
+  edited file is part of, a short while after the last change (a newer
+  change cancels a check still running). Open files are read from the
+  editor, the others from disk; sync is incremental.
+- `textDocument/definition`, `references`, `documentHighlight`: for
+  metavariables, index variables and grammar rules, across the files and
+  documents of a specification.
+- `textDocument/documentSymbol`: an outline of each file.
+- `textDocument/prepareRename`, `rename`: with the verification of
+  `haskott rename`, applied to every specification the edit reaches, so a
+  file shared by two specifications is renamed in both. The edit carries
+  the versions of the open files it was computed from, so an editor refuses
+  it if a file changed meanwhile.
+- `textDocument/semanticTokens/full`: see below.
+
+No hover, completion, formatting or code actions.
+
+### Semantic tokens
+
+Terminals, nonterminals, metavariables and index variables in rule lines
+are classified from the term parse, so the highlighting shows what the
+grammar makes of each identifier; while the specification has errors
+elsewhere, the lines are parsed with what the checker kept of the grammar.
+The standard legend is used, with these meanings; `declaration` marks a
+declaration and `documentation` the text of `com` homs.
+
+| what | token type |
+|---|---|
+| terminal spelt with a letter or digit; metalanguage keyword | `keyword` |
+| other terminal; punctuation; dots and comprehension delimiters | `operator` |
+| nonterminal | `variable` |
+| metavariable | `parameter` |
+| index variable | `typeParameter` |
+| concrete variable admitted by a `lex` hom; the body of a hom or embed | `string` |
+| `:prodname:` and `:concrete:` pseudo-terminals; hom name | `macro` |
+| number in a bound | `number` |
+| premise name `[[:name]]` | `decorator` |
+| production name | `enumMember` |
+| judgement, function, substitution or free-variable function name | `function` |
+| rule name | `method` |
+| category (`M`, `S`, ...) | `modifier` |
+| prefix, definitions group or Coq section name | `namespace` |
+| comment; `com` hom text | `comment` |
 
 ## Development subcommands
 
-Each looks at one stage of the pipeline:
+`haskott help` lists every subcommand. Each of these looks at one stage of
+the pipeline:
 
 | command | shows |
 |---|---|
@@ -188,7 +280,7 @@ Each looks at one stage of the pipeline:
 | `haskott parse FILE ':root: text'` | every parse of a term, as `ott -parse` prints them |
 | `haskott roots FILE...` | the names `rename` accepts |
 
-## How it agrees with Ott
+## Tests
 
 The acceptance corpus is the 116 `tests/` and 38 `examples/` files of Ott
 0.34: 154 files, of which Ott parses 150 and accepts 119.
@@ -201,7 +293,8 @@ from `bin/ott` in the Ott checkout.
 - `corpus`: haskott parses exactly the files Ott parses; every parsed file
   renders back byte for byte, before and after the rule lines are parsed
   into terms; the first problem `haskott check` reports for each file is
-  the one in `test/first-diagnostics.tsv`.
+  the one in `test/first-diagnostics.tsv`; and the quirks of GRAMMAR.md §6,
+  which the corpus does not exercise, behave as recorded in `inlineCases`.
 - `recovery`: every corpus file parses with recovery into a tree that
   renders back to the input, and breaking one production costs exactly
   that production.
@@ -227,27 +320,23 @@ homs); every parse of every premise, conclusion, formula, quotation and
 function clause with `ott -parse`; and the TeX and each prover's output,
 byte for byte, with Ott's default options. `--target` (coq, isa, hol, lem,
 ocaml, twf) and `--only SUBSTRING` narrow the run; `--source-locations N`
-passes `-output_source_locations N` to both. All 150 files agree.
+passes `-output_source_locations N` to both. All 150 files agree. Three
+files whose ambiguous terms haskott orders differently from Ott have their
+outputs skipped; the report is unaffected because it sets
+`-picky_multiple_parses true`.
 
 ## Design
 
-The pipeline is a sequence of projections of one tree. `Haskott.Syntax`
-parses a file into the lossless tree (`GRAMMAR.md` is its specification);
-`Haskott.Raw` projects it into the counterpart of Ott's raw parse;
-`Haskott.Spec.Check` follows Ott's `check_and_disambiguate`;
-`Haskott.Term.Grammar` and `Haskott.Term.Earley` build and run the
-character-level term parser as Ott's `new_term_parser.ml` does;
-`Haskott.Term.Splice` replaces every rule line, clause and quotation that
-parses by the term's subtree, so the whole file is one tree down to the
-leaves of its terms and still renders byte for byte; `Haskott.Tex` (in a
-LaTeX and a Typst dialect) and `Haskott.Prover` print it. `Haskott.Rename`,
-`Haskott.Diagnostics`, `Haskott.Outline` and `Haskott.Highlight` work on
-the same tree. Each module's header explains how it matches Ott and where
-it does not.
+The pipeline is a sequence of projections of one lossless tree. The header
+of the [`Haskott`](https://github.com/andreabedini/haskott/blob/main/src/Haskott.hs)
+module maps the modules onto Ott's sources, and each module's header says
+how it matches Ott and where it does not.
 
 ## Reference material
 
 Sewell, Zappa Nardelli, Owens, Peskine, Ridge, Sarkar and Strniša, "Ott:
 Effective tool support for the working semanticist", Journal of Functional
-Programming 20(1), 2010. Ott's manual is in the `doc/` directory of its
-repository.
+Programming 20(1), 2010. Ott's [manual](http://www.cl.cam.ac.uk/~pes20/ott/top2.html)
+and its [repository](https://github.com/ott-lang/ott).
+
+haskott is BSD-3-Clause licensed; see `LICENSE`.

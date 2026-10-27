@@ -29,8 +29,18 @@ Ott parses a specification in two stages, and so does haskott:
 
 Sections 1–5 specify the language. Section 6 is a checklist of the parts of the
 reference implementation that a reimplementation must reproduce but that are
-not visible in the grammar. Section 7 says what haskott's lossless tree keeps that Ott
-discards.
+not visible in the grammar. Section 7 says what haskott's lossless tree keeps
+that Ott discards, and section 8 how the corpus tests all of this.
+
+Notation, used from §2 on: `A*` zero or more, `A+` one or more, `A?`
+optional, `A (',' A)*` a comma-separated list. Token spellings are shown in
+`code`; token names (`STRING`, `BLANKS`, `LINE`, `EOF`) are used where a
+token has no fixed spelling. A lexeme such as `' '* '</'` means optional
+spaces then `</`. Italics mark the metavariables of a rule (*rest*, *lhs*).
+Alternatives are not ordered: an implementation that tries them in order
+(PEG, recursive descent) must try the longer forms first wherever one
+alternative is a prefix of another (`comp_bound`, `mse`, `element`,
+`hom_inner`).
 
 ---
 
@@ -103,7 +113,11 @@ byte is accepted only inside strings (production elements, hom text, lines),
 where it is passed through unchanged. haskott reads UTF-8 and keeps token text
 as `Text`; the lexical rules below are stated on characters, and for the ASCII
 classes they are the same thing. A byte sequence that is not valid UTF-8 is
-rejected by haskott and accepted by Ott; this is the one intended divergence.
+rejected by haskott and accepted by Ott. This, and one end-of-input case in
+`defnlang` (§2.9), are the two intended divergences. The corpus has one
+file that is not UTF-8, `examples/ocaml_light/library.ott`; Ott rejects it
+too, for the `-` on its first line (`-*-LaTeX-*-`, §2.4), so the two verdicts
+agree there for different reasons.
 
 ### 2.2 Character classes
 
@@ -118,9 +132,16 @@ rejected by haskott and accepted by Ott; this is the one intended divergence.
 | `string` | one or more characters that are not `whitespace` |
 
 Note that `'` is an identifier character, so `t'` and `x''` are identifiers,
-and `'t_'` is a quoted identifier whose content is `t_`. Because `-` is not an
-identifier character, `tex-preamble` is not an identifier (it is a `string`,
-which is why hom names can contain it: hom names are lexed in `hom` mode).
+and `'t_'` is a quoted identifier whose content is `t_`. For the same reason
+`maybe_quoted_ident` matches exactly what `identchar+` matches: the quoted
+alternatives add nothing, `'a'b'` is one identifier (dequoted to `a'b`),
+`'a b'` is two, and a lone `'` is an identifier that dequoting leaves alone.
+The last case decides where Ott reports the error in
+`examples/ocaml_light/syntax.ott`, whose `'<<'` closes a block comment. Because
+`-` is not an identifier character, `tex-preamble` is not an identifier (it is
+a `string`, which is why hom names can contain it: hom names are lexed in
+`hom` mode). The class `string` is a character class; the token `STRING` of
+each mode is defined by that mode's table and is narrower in `hom` mode.
 
 **Dequoting.** Where a rule below says a token is *dequoted*, a lexeme of the
 form `'…'` with at least two characters yields the content between the quotes,
@@ -228,28 +249,52 @@ Blanks are preserved as tokens because the body is output verbatim.
 | `}}` | `DOUBLERIGHTBRACE` | return to the entering mode |
 | `[` `]` `{` `}` | `STRING` of that one character | |
 | `..` `...` `....` | `DOTDOT` `DOTDOTDOT` `DOTDOTDOTDOT` | |
-| ` *</` (spaces then `</`) | `COMP_LEFT` | mode `comp_bound`, returning here |
+| `' '* '</'` (optional spaces then `</`) | `COMP_LEFT`; the spaces are part of the lexeme and are not a `BLANKS` token | mode `comp_bound`, returning here |
 | `.` | `STRING` `"."` | |
-| one or more characters other than `whitespace` `[` `]` `{` `}` `.` | `STRING` | |
+| one or more characters other than `whitespace` `[` `]` `{` `}` `.` | `STRING` (not dequoted: `{{ tex 'x' }}` keeps its quotes) | |
 | end of input | `EOF` | |
 
 `hom_star` is the same with `*}}` closing instead of `}}`, with `{`, `}` and
-`{{` as ordinary characters, and with `*` as a one-character `STRING` so that
-`*}}` can be recognised by longest match.
+`{{` as ordinary characters (its `STRING` is one or more characters other
+than `whitespace` `[` `]` `*` `.`), and with `*` as a one-character `STRING`
+so that `*}}` can be recognised by longest match.
 
-Longest match applies here too: ` *</` is `COMP_LEFT` only when the string
-rule does not match more, so `[[ </ x_i // i /> ]]` opens a comprehension
-and `[[</x_i//i/>]]` lexes `</x_i//i/>` as one `STRING`.
+Longest match applies here too: `' '* '</'` is `COMP_LEFT` only when the
+string rule does not match more, so `[[ </ x_i // i /> ]]` opens a
+comprehension and `[[</x_i//i/>]]` lexes `</x_i//i/>` as one `STRING`.
 
 A hom's text is therefore split into runs separated at brackets, braces, dots
-and whitespace, and the original text is recovered by concatenation. The split
+and whitespace, and the original text is recovered by concatenation, except
+around a comprehension: the spaces before `</` are swallowed by `COMP_LEFT`
+and the whitespace between `</` and `/>` is discarded (§2.7). The split
 exists so that `[[x]]` lexes as `[[`, `x`, `]]` without spaces around it.
 
 ### 2.7 Mode `comp_bound`
 
-Inside a hom, after `</`, up to and including `/>`: whitespace is discarded;
-`..` `...` `....` `</` `//` `IN` are tokens; `/>` is a token and returns to the
-hom mode; any other run of non-whitespace is a `STRING`.
+Inside a hom, after `</`, up to and including `/>`. Whitespace is discarded
+and, as in `elements`, every token must be a whole whitespace-delimited run.
+
+| lexeme | token | effect |
+|---|---|---|
+| `whitespace+` | interstitial | |
+| `..` `...` `....` | `DOTDOT` `DOTDOTDOT` `DOTDOTDOTDOT` | |
+| `</` `//` | `COMP_LEFT` `COMP_MIDDLE` | |
+| `/>` | `COMP_RIGHT` | back to the hom mode |
+| `IN` | `COMP_IN` | |
+| `string` | `STRING` (not dequoted) | |
+| end of input | `EOF` | |
+
+The whole-run rule has a sharp edge: `x_i//i/>` is one `STRING`, so the mode
+is left only by a free-standing `/>`. In `{{ coq [[ </x_i//i/> ]] }}` the
+space before `</` makes it `COMP_LEFT` (§2.6), the rest of the quotation is
+one string, and Ott keeps lexing in this mode past `}}` and the following
+lines until it meets a free-standing `/>` or the end of the file; the
+syntax error is reported there, not in the hom. Tokens inside a
+comprehension must be spaced: `[[ </ x_i // i /> ]]`.
+
+The nonterminal `comp_bound` of §3.4 is parsed from the tokens of this mode
+inside a hom, from `elements` tokens in a production and from `bindspec`
+tokens in a bindspec; only the last two are dequoted.
 
 ### 2.8 Mode `bindspec`
 
@@ -270,6 +315,8 @@ Between `(+` and `+)`. Whitespace is discarded; comments are allowed.
 | `maybe_quoted_ident` | `STRING` (dequoted; spelling kept) | |
 | end of input | `EOF` | |
 
+Anything else (`{{`, `|`, `[`, `-`, …) is a lexing error in this mode.
+
 ### 2.9 Mode `defnlang` (line-oriented)
 
 Entered after `by`. The rest of the `by` line, and every following line until
@@ -282,7 +329,7 @@ A line's token is decided by its shape:
 | `nnws*` `%` … `newline` | `COMMENTLINE` (text includes the newline) |
 | `nnws*` `%` … end of input | `EOF` |
 | `nnws*` `>>` `nnws*` `newline` | begins a block comment (§2.10); lexing resumes in `defnlang` immediately after the closing `<<`, which need not be at a line start |
-| `nnws*` `----` `-*` *rest* (`newline` or end of input), *rest* non-empty | `LINELINE` (dashes, rest, terminator). Longest match gives the dashes to the annotation one at a time until *rest* is non-empty: a line of exactly `----` is a `LINE`; `-----` alone is a `LINELINE` whose *rest* is `-`, which then fails to parse as an annotation (§4) |
+| `nnws*` `----` `'-'*` *rest* (`newline` or end of input), *rest* non-empty | `LINELINE` (dashes, rest, terminator). Because *rest* must be non-empty, a line of exactly `----` is a `LINE`, and a line of five or more dashes alone is a `LINELINE` whose *rest* is a dash (Ott's lexer binds the run of dashes greedily and gives one back), which then fails to parse as an annotation (§4) |
 | `nnws+` end of input | `LINE` (whitespace only, no terminator) |
 | any other non-empty line | see below |
 | end of input | `EOF` |
@@ -299,7 +346,17 @@ word of the line:
 | anything else (including `{{` followed by another word) | `LINE` (text without the terminator, terminator kept separately) |
 
 A dashed line's *rest* (everything after the run of `-`) is later parsed on its
-own with the `metalang` lexer as the rule's annotation (§4).
+own with the `metalang` lexer as the rule's annotation (§4). It is lexed as a
+string of its own, without the line's terminator, so a `%` comment on a
+dashed line (`---- :: one % a comment`) is a lexing error (§2.4).
+
+**End of input.** Ott's first-word scan reads one character past the end
+when the first word of the last line runs to the end of the file, so a last
+line that is a single word with no final newline (`ok` as the last
+conclusion, `{{com` or `{{` alone) is a lexing error in Ott; the same line
+followed by a newline, or a multi-word last line without one, is accepted.
+haskott accepts the single-word case. This is the second intended
+divergence (§2.1); the `corpus` suite pins it.
 
 ### 2.10 Comments
 
@@ -310,18 +367,23 @@ Two comment forms exist in the modes that allow comments (`metalang`,
 * **Block comments** `>>` to the matching `<<`. They nest: each `>>` inside
   opens another level. A `%` inside a block comment hides the rest of its line,
   so `<<` after a `%` on the same line does not close anything. An unclosed
-  block comment at end of input is a warning and ends the file.
+  block comment at end of input is a lexing error (Ott prints a warning
+  first, then the error). `examples/ocaml_light/syntax.ott` is rejected by
+  this rule: a `>>` on line 737 is followed by a hidden `%d<<` and is only
+  closed by a `'<<'` on line 840, so the rest of the file is a comment.
 
 There are no comments in `elements`, `hom`, `hom_star` or `comp_bound` mode:
 `%` there is an ordinary character.
 
 ## 3. Syntactic grammar
 
-Notation: `A*` zero or more, `A+` one or more, `A?` optional, `A (, A)*` a
-comma-separated list. Token spellings are shown in `code`; `ident` is a
-`STRING` token from `metalang` or `bindspec` mode (a dequoted
-`maybe_quoted_ident`); `string` is a `STRING` token from `elements` or `hom`
-mode. Where a token's mode matters it is stated.
+In this section `ident` is a `STRING` token from `metalang` or `bindspec`
+mode (a dequoted `maybe_quoted_ident`) and `string` is a `STRING` token from
+`elements`, `hom` or `comp_bound` mode (not dequoted). Ott's parser has one
+`STRING` token, so where the grammar below writes `ident` for a token that
+the lexer produced in `hom` or `comp_bound` mode (`hom_inner`, and
+`comp_bound` inside a hom) it is that mode's string, not dequoted; the text
+says so at each place.
 
 ### 3.1 Files and items
 
@@ -379,12 +441,12 @@ free identifiers; those with meaning to Ott are `M` (meta production), `S`
 Categories may be separated by blanks only, no commas. The `ident` after the
 second `::` is the production name, to which the rule's prefix is prepended.
 
-A production ends where the next `|`, the next rule (`names ::`) or the next
-item keyword begins. Because `prod*` and `rule*` are both lists with no
-separators, the parser decides that a new rule starts when it sees
-`ident (',' ident)* '::'`: an `ident` followed by `::` after a production's
-homs is the start of a rule. This is unambiguous because a production's homs
-are `{{ }}`-delimited and its bindspecs `(+ +)`-delimited.
+A production ends where the next `|`, the next rule or the next item keyword
+begins. `prod*` and `rule*` are both lists with no separators, and the
+LALR(1) parser needs one token to decide: after a production's homs and
+bindspecs, `|` continues the rule, a `STRING` begins a new rule (its
+`names`), and anything else ends the `grammar` item. The element list of a
+production may be empty (`|   :: d :: nil`).
 
 ### 3.4 Elements
 
@@ -480,8 +542,11 @@ embed_el      ::= '[[' (string | BLANKS)* ']]'
 The same lexing as homs. The body is passed to the named back end
 (`{{ coq … }}`, `{{ tex-preamble … }}`, `{{ typst-preamble … }}`), with each
 `[[ … ]]` replaced by the translation of the symbolic term it contains (stage
-two). The `>>` of a Coq `=>` inside an embed is ordinary text; the `comments`
-mode is never entered from `hom` mode.
+two). Unlike `hom_inner`, the inside of an embed's `[[ ]]` admits only
+strings and blanks: `..` and `</` there are tokens the grammar does not
+accept, so `[[ x1 .. xn ]]` is a syntax error inside an embed and legal
+inside a hom. The `>>` of a Coq `=>` inside an embed is ordinary text; the
+`comments` mode is never entered from `hom` mode.
 
 ### 3.8 Subrules, context rules, substitutions, free variables
 
@@ -565,19 +630,23 @@ After `by`, the body of a definition is the sequence of `defnlang` tokens up to
 the next keyword line. Its structure, as the parser imposes it:
 
 ```
-rule_body ::= BLANKLINE* ( BLANKLINE+ rule )* BLANKLINE*
-rule      ::= premise_lines LINELINE conclusion_lines     -- a lined rule
-            | (LINE | COMMENTLINE) (LINE | COMMENTLINE)*   -- a lineless rule, at least one LINE
+rule_body ::= ( BLANKLINE+ drule )* BLANKLINE*
+drule     ::= premise_lines LINELINE conclusion_lines     -- a lined rule
+            | (LINE | COMMENTLINE)+                        -- a lineless rule
             | DEFNCOM embed_el* '}}'                       -- a comment block
 premise_lines    ::= (LINE | COMMENTLINE)*
 conclusion_lines ::= (LINE | COMMENTLINE)*
 ```
 
+(`drule`, Ott's name, to keep it apart from the grammar `rule` of §3.3.)
 Rules are separated by one or more blank lines, and the first rule needs at
 least one blank line before it; the newline that ends the `by` line is one
 (`by` may not be followed by anything else on its line, or that text becomes a
 `LINE` and the first rule is not preceded by a blank line, which is a parse
 error). Comment lines (`%`) may appear anywhere inside a rule and are dropped.
+A lineless rule made of comment lines only parses and produces nothing. Two
+dashed lines in one block are a parse error, and so are a `LINELINE` or a
+`DEFNCOM` inside a `fun` body (§3.10), whose lines are plain.
 
 **Lined rules.** The usual form:
 
@@ -588,19 +657,26 @@ error). Comment lines (`%`) may appear anywhere inside a rule and are dropped.
     conclusion
 ```
 
-* The `LINELINE`'s *rest* (after the dashes) is parsed with the `metalang`
-  lexer as `ident* '::' ident hom* EOF`: zero or more category names, the rule
-  name, and homs (`------- S :: paren`, `------- :: pair {{ com pairing }}`).
-  The rule's full name is the class prefix, then the definition prefix, then
-  this name.
+* The `LINELINE`'s *rest* (after the dashes) is lexed on its own, without
+  the line's terminator, with the `metalang` lexer, and parsed as
+  `ident* '::' ident hom* EOF`: zero or more category names, the rule name,
+  and homs (`------- S :: paren`, `------- :: pair {{ com pairing }}`). A `%`
+  comment after the name is therefore a lexing error (§2.4). The rule's full
+  name is the class prefix, then the definition prefix, then this name.
 * The premise lines are the `LINE`s before the dashes, one premise per line.
   Each premise's text is first stripped of an optional trailing premise name
   `[[:name]]` (where `name` is a letter followed by letters and digits, and
   only trailing spaces may follow it); this names the premise for the Coq back
-  end. If what remains, ignoring surrounding spaces, has the shape
-  `{{ … }}`, the premise is *embedded prover code*: its interior is lexed as an
-  embed body and each `[[ … ]]` inside it is a symbolic term. Otherwise the
-  whole line is a symbolic term of the `formula` grammar.
+  end. If what remains starts, after optional spaces, with `{{` and
+  contains `}}` followed by optional spaces (Ott's test is a regular
+  expression anchored at the start only, so `{{ coq True }} junk` is
+  accepted and the junk is silently dropped), the premise is *embedded
+  prover code*: the text between the braces is lexed with Ott's `filter`
+  lexer, the one used for the `-tex_filter` documents, in which only `[[`,
+  `]]` and whitespace are special (no dots, no `</`, no splitting at `{ } .`,
+  and `[[[` and `]]]` pass a literal `[[` and `]]` through), and each
+  `[[ … ]]` is a symbolic term. Otherwise the whole line is a symbolic term
+  of the `formula` grammar.
 * The conclusion is the `LINE`s after the dashes. There must be exactly one;
   none is the error "rule with no conclusion" and more than one "rule with
   multiple conclusions". It is a symbolic term of the judgement form being
@@ -633,79 +709,65 @@ structure, hom structure) is fully determined in stage one.
 
 ## 6. Quirks a compatible parser must reproduce
 
-* **Keywords are reserved in `metalang` and `bindspec` only.** `left`,
-  `right`, `non`, `single`, `multiple`, `by`, `in`, `bind`, `names`, `union`
-  cannot be nonterminal or metavariable names unless quoted at every use in
-  those modes; in production elements and rule lines they are ordinary.
-* **`%` comment at end of file** without a newline is a lexing error in
-  `metalang`, accepted in `defnlang`.
-* **Rule lines that start with a keyword.** A premise or conclusion whose first
-  word is `fun`, `defn`, `grammar`, `embed`, `homs`, `metavar`, `indexvar`,
-  `subrules`, `contextrules`, `substitutions`, `freevars`, `parsing`, `defns`,
-  `funs`, `begincoqsection`, `endcoqsection` or `coqvariable` ends the
-  definition. There is no escape.
-* **Dashed lines are recognised anywhere** in `defnlang`: a line of four or
-  more `-` (after whitespace) followed by anything is a `LINELINE`, so a
-  premise cannot begin with `----`. The one exception is a line of exactly
-  `----` and nothing else, which is a `LINE` (§2.9).
-* **`{{ com` at a line start inside a definition** is a comment block even if
-  it was meant as the start of a premise.
-* **`by` must end its line.** See §4.
-* **Hom names need a following blank.** `{{com}}` is a parse error.
-* **`>>` inside a definition** starts a block comment only when it is alone on
-  its line (whitespace around it); mid-line `>>` is part of a `LINE`.
-* **Nested `{{` inside a hom** lexes as a token the grammar does not accept.
-  Braces that are needed in hom text must be single (`\mathit{[[x]]}` is fine
-  because `{` and `}` are one-character strings).
-* **`''` is an identifier**, the empty one; it is how a rule declares "no
-  prefix".
-* **Interstitials.** Ott discards whitespace and comments in `metalang`,
-  `elements`, `bindspec` and `comp_bound` before the parser sees them;
-  positions in error messages come from the lexer's line counter.
+One line each; the section that specifies the quirk, and the test that pins
+it (`corpus` is the `inlineCases` of `test/Corpus.hs`; a corpus file is
+named where one exercises it).
+
+* Keywords are reserved only in the mode that has them: `left`, `right`,
+  `non`, `single`, `multiple`, `by` in `metalang`; `bind`, `in`, `names`,
+  `distinctnames`, `union` in `bindspec`; `IN`, the dots and the
+  comprehension delimiters in `elements` and `comp_bound`. Elsewhere they are
+  ordinary, so `in :: '' ::=` needs no quoting (§2.4, §2.5, §2.8).
+* `%` comment at end of file without a newline: lexing error in `metalang`,
+  accepted in `defnlang` and `bindspec` (§2.4; corpus).
+* A single-word last line with no final newline in `defnlang` is a lexing
+  error in Ott and accepted by haskott: the declared divergence (§2.9;
+  corpus).
+* An unclosed block comment is a lexing error, after a warning (§2.10;
+  corpus, `examples/ocaml_light/syntax.ott`).
+* `%` inside a block comment hides `<<` on the rest of its line (§2.10;
+  `examples/ocaml_light/syntax.ott`).
+* A rule line whose first word is a section keyword ends the definition;
+  there is no escape (§2.9).
+* Dashed lines are recognised anywhere in `defnlang`, so a premise cannot
+  begin with `----`; exactly `----` alone is a `LINE` (§2.9).
+* A `%` comment on a dashed line is a lexing error: the annotation is lexed
+  without its newline (§2.9, §4; corpus).
+* `{{ com` at a line start inside a definition is a comment block (§2.9).
+* `by` must end its line, or the first rule has no blank line before it
+  (§4; corpus).
+* Hom names need a following blank: `{{com}}` is a parse error (§3.6;
+  corpus).
+* `>>` inside a definition starts a block comment only when alone on its
+  line (§2.9).
+* Nested `{{` inside a hom is a token the grammar does not accept; braces in
+  hom text must be single (§2.6).
+* `[[ </x_i//i/> ]]` with a space before `</` never leaves `comp_bound`
+  mode; the error is reported lines later (§2.7; corpus).
+* `..` and `</` inside an embed's `[[ ]]` are syntax errors (§3.7; corpus).
+* A lineless rule of comment lines only parses and produces nothing (§4;
+  corpus).
+* An embedded premise `{{ … }}` is recognised by a start-anchored match, so
+  trailing text after `}}` is dropped (§4; corpus).
+* `''` is an identifier, the empty one (§2.2).
+* Ott discards whitespace and comments in `metalang`, `elements`, `bindspec`
+  and `comp_bound` before the parser sees them; positions in its error
+  messages come from the lexer's line counter (§2).
 
 ## 7. The lossless tree
 
 haskott's parser builds a lossless tree (a graft green tree, in which
 whitespace and comments are tokens) directly from the rules above, and the
-checked specification is a projection of it. The tree holds every character
-of the input:
-
-* Every interstitial of §2 is a trivia token: `Space` (a run of `nnws`),
-  `Newline`, `LineComment` (`%` to end of line, newline excluded), and
-  `BlockComment` (from `>>` to its matching `<<`, nesting included, as one
-  token).
-* `BLANKS` in hom bodies are kept as the same trivia kinds; the hom body's
-  `string` runs are `HomText` tokens; `[[` and `]]` are tokens.
-* In `defnlang`, a `LINE` is a `Line` token without its terminator, the
-  terminator is a `Newline`, a `BLANKLINE` is `Space`? `Newline`, a
-  `COMMENTLINE` is `Space`? `LineComment` `Newline`, and a `LINELINE` is a
-  `Dashes` token followed by the tokens of its annotation lexed in `metalang`.
-* Placement follows two rules. A node spans from its first to its last
-  syntax token. An item (metavar declaration, rule, production, defn, rule
-  in a body, clause) also owns the whitespace directly in front of it on
-  its line and the trivia to the end of its last line; and, by the
-  *indentation rule*, the comment lines after it that are indented past
-  its first column, with the blank lines between them, stay with it. All
-  other trivia belongs to the innermost node whose span contains it, so
-  comment lines between two productions are siblings in the rule node, and
-  no node is given the comment lines above it.
-* Node shapes: a `Premise`, `Conclusion`, `Formula` or `Clause` is
-  `Space? Line`; a `RuleLine` is `Space? Dashes` followed by the annotation's
-  tokens; a `DefnCom` is `Space? HomOpen Space? HomText("com")` followed by
-  the body's tokens. `Name`, `Bindspec`, `Mse`, `CompBound`, `Hom` and
-  `HomRef` are tight on both sides: the trivia around them belongs to their
-  parent.
-* In a definition body the comment lines that follow a rule, with or without
-  blank lines between, are placed by the indentation rule like everywhere else: those
-  indented past the rule's first line stay with the rule, the others belong
-  to the definition. Ott's grammar makes a comment line directly after the
-  conclusion part of the same block, but the tree does not record blocks.
-* Rendering an unedited tree yields the input exactly. This is checked on
-  every file of §8.
-
-The *stage two* parse replaces each `Line` token of a premise, conclusion or
-clause by a subtree whose rendering is the line's text, so after stage two the
-law still holds for the whole file.
+checked specification is a projection of it. Every interstitial of §2 is a
+trivia token, the `BLANKS` of hom bodies are the same trivia kinds, and a
+`LINE` is a token without its terminator; rendering an unedited tree yields
+the input exactly, on every file of §8, and still does after stage two has
+replaced each rule line by the subtree of its term. The token and node
+kinds, and the two rules that place trivia (an item owns the whitespace in
+front of it, the trivia to the end of its last line, and the comment lines
+after it indented past its first column; everything else belongs to the
+innermost node whose span contains it), are in the header of
+`Haskott.Syntax.Parser`.
 
 ## 8. Corpus
 

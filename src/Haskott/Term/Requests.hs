@@ -10,6 +10,7 @@ module Haskott.Term.Requests
   , termRequests
   , ruleNameParse
   , embeddedQuotations
+  , embeddedSplit
   ) where
 
 import Data.Char (isAlpha, isAlphaNum)
@@ -62,14 +63,22 @@ ruleNameParse s =
                 then (T.dropEnd 3 beforeName, Just name)
                 else (s, Nothing)
 
+-- | Ott recognises an embedded premise by matching @ *{{ *\(.*\)}} *@ at
+-- the start of the line only: after spaces the text begins with @{{@ and
+-- contains @}}@; the body runs to the last @}}@ and whatever follows is
+-- dropped. Returns the body (between the braces) and the text after the
+-- closing braces.
+embeddedSplit :: Text -> Maybe (Text, Text)
+embeddedSplit s = case T.stripPrefix "{{" (T.dropWhile (== ' ') s) of
+  Nothing -> Nothing
+  Just rest -> case T.breakOnEnd "}}" rest of
+    (body, after) | "}}" `T.isSuffixOf` body -> Just (T.dropEnd 2 body, after)
+    _ -> Nothing
+
 -- | A premise of the shape @{{ ... }}@ is embedded prover code; its
 -- @[[ ... ]]@ quotations are the terms to parse.
 embeddedQuotations :: Text -> Maybe [Text]
-embeddedQuotations s =
-  let t = T.strip s
-   in case (T.stripPrefix "{{" t >>= T.stripSuffix "}}") of
-        Nothing -> Nothing
-        Just inner -> Just (quotations inner)
+embeddedQuotations s = quotations . fst <$> embeddedSplit s
   where
     quotations t = case T.breakOn "[[" t of
       (_, rest)
