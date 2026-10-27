@@ -97,13 +97,6 @@ $ cabal run haskott -- check test/extensions/lambda.ott
 test/extensions/lambda.ott: ok
 ```
 
-haskott is built on [graft](https://github.com/andreabedini/graft), which
-is not on Hackage yet: `cabal.project` pins a commit of its repository, and
-cabal clones it. To build against a checkout of graft instead, name it in
-`cabal.project.local`, as the comment in `cabal.project` shows. Each
-release also has the source distribution `haskott-VERSION.tar.gz`, which
-needs graft from Hackage, so for now build from the repository.
-
 GHC 9.12.2 and 9.14.1 are the tested compilers; the bounds admit GHC 9.6
 and later. To use haskott from a Makefile, put it on the path:
 

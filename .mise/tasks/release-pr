@@ -31,9 +31,7 @@ next=${next#v}
 
 # Every package of the release has its version. cabal sdist names each
 # tarball NAME-VERSION.tar.gz, and --list-only lists the files of every
-# package, its .cabal file among them. The target is pkg:haskott, not all: graft
-# is a source-repository-package of cabal.project, which all includes, and
-# it is released from its own repository.
+# package, its .cabal file among them.
 sdist=$(mktemp -d)
 cabal sdist pkg:haskott -o $sdist >/dev/null
 files=( ${(f)"$(cabal sdist pkg:haskott --list-only)"} )

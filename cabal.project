@@ -1,14 +1,1 @@
--- haskott is built on graft, the lossless tree library, which is not on
--- Hackage yet: it is pinned here to a commit of its repository, and cabal
--- clones it into dist-newstyle/src. To build against a checkout of graft
--- instead, for example while changing both, put its path in
--- cabal.project.local (which git ignores), and cabal takes that package in
--- place of the pinned one:
---
---   packages: ../graft
 packages: .
-
-source-repository-package
-  type: git
-  location: https://github.com/andreabedini/graft.git
-  tag: 4d5e0e4d61ca4e37247630f0074ee88d5de9c13e

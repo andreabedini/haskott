@@ -56,7 +56,7 @@ The maintainer makes releases.
    gh attestation verify ASSET --repo andreabedini/haskott
    ```
 
-To publish a release on Hackage too, once graft is on Hackage (the source distribution depends on it), upload its source distribution and its documentation, which were built by CI, from the GitHub release:
+To publish a release on Hackage too, upload its source distribution and its documentation, which were built by CI, from the GitHub release:
 
 ```
 gh release download vVERSION --repo andreabedini/haskott --pattern 'haskott-VERSION*.tar.gz'
