@@ -109,8 +109,6 @@ ott/tests/test_lists_coq_list_functions_3.ott	: ok
 ott/tests/test_lists_coq_list_functions_4.ott	: ok
 ott/tests/test_lists_defn_list_form_1.ott	: ok
 ott/tests/test_lists_freevars_1.ott	: ok
-ott/tests/test_lists_nested_dots_1.ott	: ok
-ott/tests/test_lists_shifted_index_1.ott	: ok
 ott/tests/test_lists_terminal_1.ott	:5:1: dot form has no non-empty identical sequence on each side (perhaps due to a missing indexvar declaration)
 ott/tests/test-lj-list_ambiguity.ott	: ok
 ott/tests/test_merge_embed_location_1-1.ott	: ok
@@ -118,7 +116,6 @@ ott/tests/test_merge_embed_location_1-2.ott	: ok
 ott/tests/test-mjp.ott	: ok
 ott/tests/test-mjp-trans.ott	: ok
 ott/tests/test-pottier1.ott	: ok
-ott/tests/test_quoted_terminal_1.ott	: ok
 ott/tests/test_subrules_1.ott	: ok
 ott/examples/1Bsemantics/l1.ott	: ok
 ott/examples/1Bsemantics/l2.ott	:54:1: no parses of "  <e1,s> -> <e1',s'>":
@@ -158,5 +155,3 @@ ott/examples/tapl/tuple.ott	:7:1: "i" used as an index but not declared as an in
 ott/examples/tapl/tuples.ott	: ok
 ott/examples/tapl/unit.ott	: ok
 ott/examples/tapl/variant.ott	:11:1: "i" used as an index but not declared as an indexvar
-ott/examples/typst/lambda.ott	: ok
-haskell-report-ott/ott/expressions.ott	: ok

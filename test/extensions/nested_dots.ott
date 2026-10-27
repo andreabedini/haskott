@@ -1,0 +1,22 @@
+% Nested dot forms: the inner lists p_i_1 .. p_i_ki have a bound that
+% depends on the outer index.  Only TeX, Typst and ASCII output support
+% them; the theorem prover backends report an error.
+metavar x ::= {{ lex alphanum0 }}
+metavar K ::= {{ lex Alphanum }}
+indexvar index, i, j, k, n, m ::=
+grammar
+p :: 'P_' ::=
+  | x :: :: Var
+  | K p1 .. pn :: :: Con
+e :: 'E_' ::=
+  | x :: :: Var
+  | case x of { alt1 ; .. ; altn } :: :: Case
+alt :: 'Alt_' ::=
+  | p -> e :: :: Alt
+formula :: 'formula_' ::=
+  | judgement :: :: judgement
+defns J :: '' ::=
+defn e1 === e2 :: :: eq :: '' by
+
+  ----------------- :: dots
+  case x of { K_1 p_1_1 .. p_1_k1 -> e_1 ; .. ; K_n p_n_1 .. p_n_kn -> e_n } === x

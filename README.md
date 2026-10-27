@@ -6,17 +6,17 @@ al., "Ott: Effective tool support for the working semanticist", JFP 20(1),
 2010).
 
 haskott reads `.ott` files, checks them as Ott does, and writes what Ott
-writes: TeX and Typst, the `[[ ... ]]` document filters, and the definitions
-for Coq, Isabelle, HOL, Lem, OCaml and Twelf. On the acceptance corpus
-(Ott's own `tests/` and `examples/` plus the Haskell 2010 revised report's
-formalisation) its output is Ott's, byte for byte. It takes Ott's command
+writes: TeX, the `[[ ... ]]` document filters, and the definitions for
+Coq, Isabelle, HOL, Lem, OCaml and Twelf. On Ott's own `tests/` and
+`examples/` its output is Ott's, byte for byte. It takes Ott's command
 line, so it can stand in for `ott` in a Makefile.
 
-The input language is Ott 0.34's with three extensions: `typst` homs and
-embeds, quoted terminals in productions (`'in'`, `'::'`), and nested dot
-forms. `GRAMMAR.md` specifies the source language; the Ott checkout that
-the test corpus and the differential refer to must be one that accepts
-these extensions.
+The input language is Ott 0.34's, with four extensions of haskott's own:
+Typst output, with `typst` homs and embeds and a `-typst_filter`; quoted
+terminals in productions (`'in'`, `'::'`), which Ott reads as ordinary
+identifiers and haskott as terminals; nested dot forms; and shifted
+indices (`e_n-1`). Ott rejects a `typst` hom and the last two as bad
+rules. `GRAMMAR.md` specifies the source language.
 
 Unlike Ott, haskott parses a specification into a lossless concrete syntax
 tree (a [graft](https://github.com/andreabedini/graft) green tree:
@@ -42,7 +42,8 @@ With GHC 9.12.2 and cabal (from ghcup):
 
 ```console
 $ cabal build all
-$ cabal run haskott -- check FILE.ott
+$ cabal run haskott -- check test/extensions/lambda.ott
+test/extensions/lambda.ott: ok
 ```
 
 ## Using it as Ott
@@ -189,13 +190,13 @@ Each looks at one stage of the pipeline:
 
 ## How it agrees with Ott
 
-The acceptance corpus is Ott's 119 `tests/` and 39 `examples/` files plus
-the report's `expressions.ott`: 159 files, of which Ott parses 155 and
-accepts 124. `test/ott-acceptance.tsv` records what Ott does with each
-(`accepted`, `other-error`, `parse-error`); `scripts/ott-acceptance.zsh`
-regenerates it from `bin/ott` in the Ott checkout.
+The acceptance corpus is the 116 `tests/` and 38 `examples/` files of Ott
+0.34: 154 files, of which Ott parses 150 and accepts 119.
+`test/ott-acceptance.tsv` records what Ott does with each (`accepted`,
+`other-error`, `parse-error`); `scripts/ott-acceptance.zsh` regenerates it
+from `bin/ott` in the Ott checkout.
 
-`cabal test` runs four suites, none of which needs Ott:
+`cabal test` runs five suites, none of which runs Ott:
 
 - `corpus`: haskott parses exactly the files Ott parses; every parsed file
   renders back byte for byte, before and after the rule lines are parsed
@@ -207,21 +208,26 @@ regenerates it from `bin/ott` in the Ott checkout.
 - `rename-sweep`: every root of every accepted file (and of the report with
   its document) is renamed to a fresh name and back, and the files come
   back byte for byte.
+- `extensions`: the small specifications in `test/extensions/`, one per
+  extension, are accepted and give the TeX and Typst output recorded
+  beside them, and the report's specifications check clean. No Ott can
+  check these.
 - `lsp`: drives the server through a client.
 
-The suites read the checkouts at `../ott` and
+The suites read Ott's `tests/` and `examples/` from a checkout of Ott 0.34
+at `../ott`, and the report from
 `../haskell-2010-revised-report/formalisation`; `HASKOTT_OTT` and
 `HASKOTT_REPORT_OTT` name them when they are elsewhere.
 
-`cabal run haskott-differential` needs the Ott binary. For every file Ott
-parses it compares, in turn: the raw parse with `ott -showraw`; the checked
-specification with `ott -show_sort` (whether the file checks and, per
-production, each element's text and class and the homs); every parse of
-every premise, conclusion, formula, quotation and function clause with
-`ott -parse`; and the TeX, Typst and each prover's output, byte for byte,
-under Ott's prover options too. `--target` (coq, isa, hol, lem, ocaml, twf)
-and `--only SUBSTRING` narrow the run; `--source-locations N` passes
-`-output_source_locations N` to both. All 155 files agree.
+`cabal run haskott-differential` needs `bin/ott` built in that checkout.
+For every file Ott parses it compares, in turn: the raw parse with
+`ott -showraw`; the checked specification with `ott -show_sort` (whether
+the file checks and, per production, each element's text and class and the
+homs); every parse of every premise, conclusion, formula, quotation and
+function clause with `ott -parse`; and the TeX and each prover's output,
+byte for byte, with Ott's default options. `--target` (coq, isa, hol, lem,
+ocaml, twf) and `--only SUBSTRING` narrow the run; `--source-locations N`
+passes `-output_source_locations N` to both. All 150 files agree.
 
 ## Design
 

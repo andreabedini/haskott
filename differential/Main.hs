@@ -13,18 +13,21 @@
 --   homs;
 -- * for a file that checks, every parse of every term (@-parse@) and
 --   whether the definitions are accepted;
--- * the TeX, Typst and prover outputs, byte for byte, unless an ambiguous
+-- * the TeX and prover outputs, byte for byte, unless an ambiguous
 --   term's first parse differs from Ott's ('compareTerms').
 --
--- Ott is @bin/ott@ in the @--ott@ checkout (default @$HASKOTT_OTT@, else
--- @../ott@). Run from the repository root: the table is
--- @test/ott-acceptance.tsv@ and outputs go to @dist-newstyle/differential-tmp@.
--- @--target@ (coq, isa, hol, lem, ocaml, twf) and @--only@ (a substring of
--- the path) can be repeated; @--source-locations N@ passes
--- @-output_source_locations N@ to both.
+-- Typst output is not compared: Ott has none. The @extensions@ test suite
+-- checks it against recorded output.
 --
--- Usage: haskott-differential [--ott DIR] [--report-ott DIR] [--target T]...
--- [--only S]... [--source-locations N]
+-- Ott is @bin/ott@ in the @--ott@ checkout of upstream Ott (default
+-- @$HASKOTT_OTT@, else @../ott@). Run from the repository root: the table
+-- is @test/ott-acceptance.tsv@ and outputs go to
+-- @dist-newstyle/differential-tmp@. @--target@ (coq, isa, hol, lem, ocaml,
+-- twf) and @--only@ (a substring of the path) can be repeated;
+-- @--source-locations N@ passes @-output_source_locations N@ to both.
+--
+-- Usage: haskott-differential [--ott DIR] [--target T]... [--only S]...
+-- [--source-locations N]
 module Main (main) where
 
 import Control.Monad (forM, unless)
@@ -63,18 +66,15 @@ main :: IO ()
 main = do
   args <- getArgs
   envOtt <- lookupEnv "HASKOTT_OTT"
-  envReport <- lookupEnv "HASKOTT_REPORT_OTT"
   let opt flag def = fromMaybe def (lookup flag (pairs args))
       only = [s | ("--only", s) <- pairs args]
       wanted = [s | ("--target", s) <- pairs args]
       locations = maybe 0 read (lookup "--source-locations" (pairs args)) :: Int
       proverTargets = [t | t <- [Coq, Isa, Hol, Lem, Twf, Caml], null wanted || T.unpack (targetName t) `elem` wanted]
       ottDir = opt "--ott" (fromMaybe "../ott" envOtt)
-      reportDir = opt "--report-ott" (fromMaybe "../haskell-2010-revised-report/formalisation" envReport)
       ott = ottDir </> "bin" </> "ott"
       resolve rel = case splitDirectories rel of
         ("ott" : more) -> ottDir </> joinPath more
-        ("haskell-report-ott" : more) -> reportDir </> joinPath more
         _ -> rel
   table <- TIO.readFile "test/ott-acceptance.tsv"
   let entries =
@@ -119,13 +119,12 @@ main = do
                               putStrLn (rel ++ ": note: an ambiguous term's first parse differs from Ott's; outputs not compared")
                               pure Nothing
                           | otherwise -> do
-                              typ <- compareTex ott locations sources Typst rel file spec
-                              tex <- compareTex ott locations sources Latex rel file spec
+                              tex <- compareTex ott locations sources rel file spec
                               provers <- mapM (\t -> compareProver ott locations sources t rel file src spec) proverTargets
-                              pure (combine ([typ, tex] ++ provers))
+                              pure (combine (tex : provers))
                   _ -> pure Nothing
   let failures = [f | Just f <- results]
-  putStrLn (show (length entries) ++ " files compared with ott -showraw, -show_sort, -parse, TeX, Typst and " ++ T.unpack (T.intercalate ", " (map targetName proverTargets)) ++ " output, " ++ show (length failures) ++ " disagreements")
+  putStrLn (show (length entries) ++ " files compared with ott -showraw, -show_sort, -parse, TeX and " ++ T.unpack (T.intercalate ", " (map targetName proverTargets)) ++ " output, " ++ show (length failures) ++ " disagreements")
   mapM_ putStrLn failures
   unless (null failures) exitFailure
   where
@@ -138,35 +137,32 @@ dropVersionLine t = case T.lines t of
   (first : _) | "Ott version" `T.isPrefixOf` first -> T.drop (T.length first + 1) t
   _ -> t
 
--- | Compare the output of a TeX dialect with Ott's, byte for byte. Ott is
--- run on the same path, so the header naming the sources agrees. When Ott
--- fails to produce output (it rejects some specifications only at output
--- time), the file is reported but not counted as a disagreement.
-compareTex :: FilePath -> Int -> Sources -> Dialect -> FilePath -> FilePath -> Spec -> IO (Maybe String)
-compareTex ott locations sources d rel file spec = do
+-- | Compare the TeX output with Ott's, byte for byte. Ott is run on the
+-- same path, so the header naming the sources agrees. When Ott fails to
+-- produce output (it rejects some specifications only at output time), the
+-- file is reported but not counted as a disagreement.
+compareTex :: FilePath -> Int -> Sources -> FilePath -> FilePath -> Spec -> IO (Maybe String)
+compareTex ott locations sources rel file spec = do
   let tmp = "dist-newstyle" </> "differential-tmp"
   createDirectoryIfMissing True tmp
-  let (ext, what) = case d of
-        Latex -> ("tex", "TeX")
-        Typst -> ("typ", "Typst")
-      out = tmp </> ("haskott-differential." ++ ext)
+  let out = tmp </> "haskott-differential.tex"
   _ <- try (removeFile out) :: IO (Either IOException ())
   (code, _, err) <- readProcessWithExitCode ott (["-i", file, "-o", out] ++ locationArgs locations) ""
   exists <- doesFileExist out
   if not exists
     then do
-      putStrLn (rel ++ ": note: ott produced no " ++ what ++ " output (" ++ show code ++ "): " ++ take 200 (lastLine err))
+      putStrLn (rel ++ ": note: ott produced no TeX output (" ++ show code ++ "): " ++ take 200 (lastLine err))
       pure Nothing
     else do
       theirs <- B.readFile out
-      let (env, _, _, processed, _) = makeTex (defaultTexOptions d) {optTexSourceLocations = locations} False spec
+      let (env, _, _, processed, _) = makeTex (defaultTexOptions Latex) {optTexSourceLocations = locations} False spec
           mine = TE.encodeUtf8 (texDocument (withSources sources env) (T.pack file) processed)
       if mine == theirs
         then pure Nothing
         else do
           let diffAt = length (takeWhile id (B.zipWith (==) mine theirs))
               context bs = T.unpack (TE.decodeUtf8With TEE.lenientDecode (B.take 160 (B.drop (max 0 (diffAt - 60)) bs)))
-          pure (Just (rel ++ ": " ++ what ++ " output differs at byte " ++ show diffAt ++ "\n    haskott: " ++ show (context mine) ++ "\n    ott:     " ++ show (context theirs)))
+          pure (Just (rel ++ ": TeX output differs at byte " ++ show diffAt ++ "\n    haskott: " ++ show (context mine) ++ "\n    ott:     " ++ show (context theirs)))
   where
     lastLine s = case reverse (filter (not . null) (lines s)) of
       (l : _) -> l
