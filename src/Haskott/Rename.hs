@@ -40,6 +40,8 @@ module Haskott.Rename
   ) where
 
 import Control.Monad (unless, when)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict (State, StateT, modify', runState, runStateT)
 import qualified Data.ByteString as B
 import Data.Char (isAlpha, isAlphaNum)
 import Data.List (nub, sortOn, unfoldr)
@@ -47,15 +49,16 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Graft
+import Graft hiding (Edit)
 import qualified Graft.Cursor as Cursor
+import qualified Graft.Edit as Edit
 import qualified Graft.Green as Green
 import qualified Graft.Range as Range
 import Haskott.Load
 import Haskott.Spec
 import Haskott.Syntax (ParseError (..))
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (isNothing, mapMaybe)
 import Haskott.Syntax.Ast (identValue)
 import qualified Haskott.Syntax.Ast as A
 import Haskott.Syntax.Kind (Kind)
@@ -211,23 +214,21 @@ type C = Cursor Kind
 -- tree.
 type Renaming = Either Text (Maybe ([Edit], GreenElement Kind))
 
--- | What a walk has found so far. The cursor gives offsets in the tree as
--- edited so far; the shift turns them back into offsets in the old text,
--- where the problems and the edits are reported.
+-- | What a walk has found so far. The walk reads the original tree, so a
+-- cursor's offset is an offset in the old text, where the problems and
+-- the edits are reported.
 data Walk = Walk
-  { wShift :: !Int
-  -- ^ the bytes the edits so far have added
-  , wProblems :: [Problem]
+  { wProblems :: [Problem]
   -- ^ newest first
   , wEdits :: [Edit]
   -- ^ newest first
   }
 
--- | Rename the root in one specification file, by walking its spliced tree
--- with one cursor and replacing each token and quotation that mentions
--- it. Returns the problems, the edits (with offsets in the old text, for
--- the command line and the editor to show) and the renamed tree, which
--- renders to the new text.
+-- | Rename the root in one specification file, by rewriting its spliced
+-- tree: each token and quotation that mentions it is replaced, and every
+-- decision reads the original tree. Returns the problems, the edits (with
+-- offsets in the old text, for the command line and the editor to show)
+-- and the renamed tree, which renders to the new text.
 treeRename :: Ctx -> Source -> GreenNode Kind -> ([Problem], [Edit], GreenElement Kind)
 treeRename ctx s tree
   -- the new text is the renamed tree's, so the tree must be the file
@@ -235,41 +236,44 @@ treeRename ctx s tree
       let off = maybe 0 (\(common, _, _) -> byteLength common) (T.commonPrefixes rendered text)
        in ([Problem (Just (file, text, off)) "internal error: the tree of this file with its terms parsed does not render to the file here, so rename cannot edit it"], [], Node tree)
   | otherwise =
-      let (w, c) = visitChildren [] Set.empty (Walk 0 [] [], Cursor.fromGreen (Node tree))
-       in (reverse (wProblems w), reverse (wEdits w), Cursor.tree c)
+      let (renamed, w) = runState (Edit.rewriteM visit ([], Set.empty) (Node tree)) (Walk [] [])
+       in (reverse (wProblems w), reverse (wEdits w), renamed)
   where
     rendered = Green.renderNode tree
     file = srcPath s
     text = srcText s
 
-    -- a cursor offset, in the tree as edited so far, as an offset in the
-    -- old text
-    oldOffset w off = fromIntegral off - wShift w
+    -- the renaming of a focus whose text starts at an offset of the old
+    -- text: a problem or the edits are recorded, and the focus is replaced,
+    -- or left as it is with everything below it
+    apply :: TextLength -> Renaming -> State Walk (Change ([Kind], Set.Set Text) Kind)
+    apply at r = case r of
+      Left m -> do
+        modify' (\w -> w {wProblems = Problem (Just (file, text, fromIntegral at)) m : wProblems w})
+        pure Skip
+      Right Nothing -> pure Skip
+      Right (Just ([], _)) -> pure Skip
+      Right (Just (es, replacement)) -> do
+        modify' (\w -> w {wEdits = reverse (map (shiftEdit (fromIntegral at)) es) ++ wEdits w})
+        pure (Replace replacement)
 
-    -- the renaming of a focus whose old text starts at a cursor offset
-    apply :: Walk -> C -> TextLength -> Renaming -> (Walk, C)
-    apply w c at r = case r of
-      Left m -> (w {wProblems = Problem (Just (file, text, oldOffset w at)) m : wProblems w}, c)
-      Right Nothing -> (w, c)
-      Right (Just ([], _)) -> (w, c)
-      Right (Just (es, replacement)) ->
-        let es' = map (shiftEdit (oldOffset w at)) es
-            added = sum [byteLength (editNew e) - (editEnd e - editStart e) | e <- es]
-         in (w {wShift = wShift w + added, wEdits = reverse es' ++ wEdits w}, Cursor.replace replacement c)
-
-    -- Each node is entered before anything below it is edited, so what
-    -- is read from a node on entry (its owner's identifiers, the text of
-    -- a quotation) is the old text.
+    -- The rewrite reads the original tree, so what a node is entered with
+    -- (its owner's identifiers, the text of a quotation) and what a token
+    -- sees around it (its siblings) are the old text, whatever has been
+    -- replaced before them. The ancestor kinds and the owner are passed
+    -- down as the context.
     --
     -- owner: the identifiers a hom reference can resolve to, those of the
     -- elements of the enclosing production, judgement form or function,
     -- or the names of the enclosing declaration; a reference that names
     -- none of them is target text, not a root
-    visit :: [Kind] -> Set.Set Text -> (Walk, C) -> (Walk, C)
-    visit anc owner (w, c) = case Cursor.green c of
-      Token t -> apply w c (Range.start (Cursor.range c)) (tokenRenaming anc owner c t)
+    visit :: ([Kind], Set.Set Text) -> C -> State Walk (Change ([Kind], Set.Set Text) Kind)
+    visit (anc, owner) c = case Cursor.green c of
+      Token t -> apply (Range.start (Cursor.range c)) (tokenRenaming anc owner c t)
       Node _
-        | Cursor.kind c == K.HomRef && (K.Embed `elem` anc || K.DefnCom `elem` anc) && not (spliced c) -> quotation w c
+        -- the root is not an ancestor: its children are visited with none
+        | isNothing (Cursor.parent c) -> pure Descend
+        | Cursor.kind c == K.HomRef && (K.Embed `elem` anc || K.DefnCom `elem` anc) && not (spliced c) -> quotation c
         | otherwise ->
             let owner' = case Cursor.kind c of
                   k | k `elem` [K.Prod, K.Defn, K.Fundefn, K.MetavarDecl, K.Rule] -> ownerIdents c
@@ -278,18 +282,7 @@ treeRename ctx s tree
                     (Just item, Just section) -> M.findWithDefault Set.empty (A.homsSectionWrapper section <> A.homsItemName item) (cOwners ctx)
                     _ -> Set.empty
                   _ -> owner
-             in visitChildren (Cursor.kind c : anc) owner' (w, c)
-
-    -- visit the children in order, threading the cursor, and come back up
-    visitChildren :: [Kind] -> Set.Set Text -> (Walk, C) -> (Walk, C)
-    visitChildren anc owner (w, c) = maybe (w, c) (along w) (Cursor.firstChild c)
-      where
-        along w0 child =
-          let (w1, child') = visit anc owner (w0, child)
-           in case Cursor.nextSibling child' of
-                Just next -> along w1 next
-                -- a child always has a parent
-                Nothing -> (w1, fromMaybe c (Cursor.parent child'))
+             in pure (DescendWith (Cursor.kind c : anc, owner'))
 
     spliced c = any (isTermKind . Cursor.kind) (Cursor.children c)
     isTermKind k = case k of
@@ -354,7 +347,7 @@ treeRename ctx s tree
 
     -- the quotation of an embed or comment block, parsed as user syntax;
     -- its text between the brackets is replaced by the renamed term
-    quotation w c =
+    quotation c =
       let isBracket x = Cursor.kind x `elem` [K.RefOpen, K.RefClose]
           inner = filter (not . isBracket) (Cursor.children c)
           q = T.concat (map Cursor.text inner)
@@ -368,7 +361,7 @@ treeRename ctx s tree
                in Node (Green.node K.HomRef (open ++ els ++ close))
             el -> el
           isBracketKind k = k `elem` [K.RefOpen, K.RefClose]
-       in apply w c at ((fmap . fmap) (\(es, els) -> (es, rebuild els)) (renameTerm ctx "user_syntax" userSyntaxTransform q))
+       in apply at ((fmap . fmap) (\(es, els) -> (es, rebuild els)) (renameTerm ctx "user_syntax" userSyntaxTransform q))
 
 -- | A token renamed as a whole, if at all.
 wholeToken :: GreenToken Kind -> Maybe Text -> Maybe ([Edit], GreenElement Kind)
@@ -500,29 +493,26 @@ renameTerm ctx root transform q =
             K.TIndex -> Right (renameIndex ctx v)
             _ -> Right Nothing
 
--- | Walk the tokens of a tree with one cursor, replacing the text of those
--- the function renames; the first refusal stops the walk. The edits have
--- offsets in the old text: the cursor gives offsets in the tree as edited
--- so far, so the bytes added by earlier edits are taken off.
+-- | Rewrite the tokens of a tree, replacing the text of those the function
+-- renames; the first refusal stops the rewrite. The rewrite reads the
+-- original tree, so the edits have offsets in the old text.
 renameTokens :: (GreenToken Kind -> Either Text (Maybe Text)) -> GreenElement Kind -> Either Text ([Edit], GreenElement Kind)
-renameTokens rename root = maybe (Right ([], root)) (go 0 []) (Cursor.firstToken (Cursor.fromGreen root))
+renameTokens rename root = do
+  (renamed, edits) <- runStateT (Edit.rewriteM step () root) []
+  pure (reverse edits, renamed)
   where
-    go :: Int -> [Edit] -> C -> Either Text ([Edit], GreenElement Kind)
-    go shift acc c = do
-      (shift', acc', c') <- case Cursor.green c of
-        Token t -> do
-          r <- rename t
-          pure $ case r of
-            Nothing -> (shift, acc, c)
-            Just v' ->
-              let v = Green.text t
-                  start = fromIntegral (Range.start (Cursor.range c)) - shift
-               in ( shift + byteLength v' - byteLength v
-                  , Edit start (start + byteLength v) v v' : acc
-                  , Cursor.replace (Token (Green.token (Green.tokenKind t) v')) c
-                  )
-        Node _ -> pure (shift, acc, c)
-      maybe (Right (reverse acc', Cursor.tree c')) (go shift' acc') (Cursor.nextToken c')
+    step :: () -> C -> StateT [Edit] (Either Text) (Change () Kind)
+    step () c = case Cursor.green c of
+      Node _ -> pure Descend
+      Token t -> do
+        r <- lift (rename t)
+        case r of
+          Nothing -> pure Skip
+          Just v' -> do
+            let v = Green.text t
+                start = fromIntegral (Range.start (Cursor.range c))
+            modify' (Edit start (start + byteLength v) v v' :)
+            pure (Replace (Token (Green.token (Green.tokenKind t) v')))
 
 byteLength :: Text -> Int
 byteLength = B.length . TE.encodeUtf8
